@@ -1,12 +1,13 @@
-// Compilation Command: "gcc main.c -o main -lpaho-mqtt3as -pthread"
+// Compilation Command: "gcc main.c publisher.c subscriber.c messages.c -o main -lpaho-mqtt3as -pthread"
 // Excecution Command: "./main"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
-#include "publisher.c"
-#include "subscriber.c"
+#include "publisher.h"
+#include "subscriber.h"
+#include "messages.h"
 
 #if !defined(_WIN32)
 #include <unistd.h>
@@ -31,21 +32,22 @@ typedef struct // Publish Arguments
     char payload[1024];
 } PublishArgs;
 
+typedef struct // Subscriber Arguments
+{
+    char username[64];
+    char topic[64];
+	LinkedList* message_list;
+} SubscribeArgs;
+
 // Thread Function Wrappers
 
-void* statusHeartbeat(void* arg) // Keep Sending Status To USERS Topic (publishStatus)
+void* statusHeartbeat(void* arg) // Keep Sending Status To USERS Topic (publisherStatus)
 {
     PublishArgs* args = (PublishArgs*)arg;
 
     while (online)
     {
-        publishStatus(args->username, args->topic, args->payload);
-
-        #if defined(_WIN32)
-			Sleep(30000); // 30 Seconds
-		#else
-			usleep(30000000L); // 30 Seconds
-		#endif
+        publisherStatus(args->username, args->topic, args->payload);
 
         for (int i = 0; i < 3000 && online; i++) { // 10ms * 3000 = 30s
             #if defined(_WIN32)
@@ -59,19 +61,33 @@ void* statusHeartbeat(void* arg) // Keep Sending Status To USERS Topic (publishS
     return NULL;
 }
 
+// Main Function
+
 int main()
 {
+    // ----- Program Startup -----
+
     // Welcome & Username Definition
 
     char username[64];
-    printf("ChatMQTT\n\n\nDigite Seu Nome De Usuário (Máximo 63 Caractéres): ");
+    printf("\nChatMQTT\n\nDigite Seu Nome De Usuário (Máximo 63 Caractéres): ");
     scanf("%63s", username); // Limit Username Input To 63 Characters + '\0'
-    printf("Bem Vindo, %s!\n\n\n", username);
+    printf("\nBem Vindo, %s!\n\n", username);
+
+    printf("---------- PROGRAM LOG ----------\n\n", username);
 
     // Threads Parameters
 
     pthread_t threads[1]; // Threads Handler
+    // Total Threads Number Is Based On The Maximum Possible Concurrent Threads:
+    // Messages Queue (WIP)
+    // Status Publisher
+    // Status Subscriber (WIP)
     int threads_running = 0; // Threads Counter
+
+    // Queues Initialization
+    LinkedList status_list; // Status List
+    listInit(&status_list);
 
     // Send Online Status (USERS Topic)
 
@@ -90,9 +106,35 @@ int main()
         return 1;
     }
 
+    #if defined(_WIN32)
+			Sleep(2500);
+		#else
+			usleep(2500000L);
+		#endif
+
+    printf("\n---------- PROGRAM LOG ----------\n\n");
+
+    // ----- Program Menu -----
+
+    printf("Digite Qualquer Coisa Para Escanear Por Usuários...\n\n");
+    scanf(" %*c"); // Wait For Any Key Press
+    printf("\n");
+
+    printf("---------- PROGRAM LOG ----------\n\n");
+
     // Monitor Users Status
-    // WIP: A thread to aways save all messages from USERS since program startup, all users send their status within 30 seconds, so in 30 seconds
-    // we will have all user status. We just have to keep replacing the duplicated status.
+    char status_username[64]; // Create An Alternative Username To Avoid Conflict With statusHeartbeat
+    snprintf(status_username, sizeof(status_username), "%s_status", username);
+
+    subscriberStatus(status_username, "USERS", &status_list);
+    
+    printf("\n---------- PROGRAM LOG ----------\n\n");
+
+    printf("> Usuário : Status <\n\n");
+
+    listPrint(&status_list);
+
+    printf("\n---------- PROGRAM LOG ----------\n\n");
 
     // pthread_t threads[2]; // Thread Handler (Publisher / Subscriber)
 
@@ -102,16 +144,16 @@ int main()
     //     perror("Failed To Create The Subscriber");
     //     return 1;
     // }
-    // if (pthread_create(&threads[0], NULL, publishStatus_thread, NULL) != 0) // Publisher
+    // if (pthread_create(&threads[0], NULL, publisherStatus_thread, NULL) != 0) // Publisher
     // {
     //     perror("Failed To Create The Publisher");
     //     return 1;
     // }
 
-    #if defined(_WIN32)
-			Sleep(65000);
+   #if defined(_WIN32)
+			Sleep(10000);
 		#else
-			usleep(65000000L);
+			usleep(10000000L);
 		#endif
 
     online = 0;
@@ -124,7 +166,13 @@ int main()
 
     // Send Offline Status (USERS Topic)
     snprintf(payload, sizeof(payload), "%s: Offline", username);
-    publishStatus(username, "USERS", payload);
+    publisherStatus(username, "USERS", payload);
+
+    // End
+
+    printf("\n---------- PROGRAM LOG ----------\n\n");
+
+    printf("Até Mais, %s!\n\n", username);
 
     return 0;
 }

@@ -21,10 +21,6 @@
 #define QOS_P         2
 #define TIMEOUT_P     10000L // L = Long Int (To Avoid Compilation Error Across Platforms)
 
-char username_p[64];
-char topic_p[64];
-char payload_p[1024];
-
 // Context
 
 typedef struct 
@@ -33,8 +29,7 @@ typedef struct
     char username_p[64];
     char topic_p[64];
     char payload_p[1024];   
-
-} Context;
+} Context_p;
 
 // Flags
 
@@ -48,14 +43,15 @@ void onDisconnect_p(void* context_, MQTTAsync_successData* response);
 void onDisconnectFailure_p(void* context_, MQTTAsync_failureData* response);
 void onSend_p(void* context_, MQTTAsync_successData* response);
 void onSendFailure_p(void* context_, MQTTAsync_failureData* response);
-void connlost_p(void *context_, char *cause);
+void connectionLost_p(void *context_, char *cause);
 int messageArrived_p(void* context_, char* topicName, int topicLen, MQTTAsync_message* m);
+int publisherStatus(const char* username_p, const char* topic_p, const char* payload_p);
 
 // Callbacks
 
-void connlost_p(void *context_, char *cause) // Connection Lost
+void connectionLost_p(void *context_, char *cause) // Connection Lost
 {
-    Context* context = (Context*)context_;
+    Context_p* context = (Context_p*)context_;
 	MQTTAsync client = context->client; // Cast context Back To The Original Type (void* -> MQTTAsync) To Be Able To Use
 	MQTTAsync_connectOptions conn_opts = MQTTAsync_connectOptions_initializer; // Connection Options (... = [Default Initializer Macro])
 	int rc; // >main
@@ -68,8 +64,8 @@ void connlost_p(void *context_, char *cause) // Connection Lost
 	// Connection Parameters
 	conn_opts.keepAliveInterval = 20;
 	conn_opts.cleansession = 1;
-    conn_opts.onSuccess = onConnect_p; // Calls onConnect If Connect Successfuly
-	conn_opts.onFailure = onConnectFailure_p; // Calls onConnectFailure If Connection Fails
+    conn_opts.onSuccess = onConnect_p;
+	conn_opts.onFailure = onConnectFailure_p;
     conn_opts.context = context;
 
 	// Try To Connect Again
@@ -94,7 +90,7 @@ void onDisconnect_p(void* context_, MQTTAsync_successData* response) // Disconne
 
 void onSendFailure_p(void* context_, MQTTAsync_failureData* response) // Fails To Publish Message
 {
-    Context* context = (Context*)context_;
+    Context_p* context = (Context_p*)context_;
 	MQTTAsync client = context->client; // >connlost
 	MQTTAsync_disconnectOptions opts = MQTTAsync_disconnectOptions_initializer; // Disconnection Options (... = [Default Initializer Macro])
 	int rc; // >main
@@ -117,7 +113,7 @@ void onSendFailure_p(void* context_, MQTTAsync_failureData* response) // Fails T
 
 void onSend_p(void* context_, MQTTAsync_successData* response) // Publish Message Successfuly
 {
-    Context* context = (Context*)context_;
+    Context_p* context = (Context_p*)context_;
 	MQTTAsync client = context->client; // >connlost
 	MQTTAsync_disconnectOptions opts = MQTTAsync_disconnectOptions_initializer; // Disconnection Options (... = [Default Initializer Macro])
 	int rc; // >main
@@ -148,7 +144,7 @@ void onConnectFailure_p(void* context_, MQTTAsync_failureData* response) // Fail
 
 void onConnect_p(void* context_, MQTTAsync_successData* response) // Connected Successfuly
 {
-    Context* context = (Context*)context_;
+    Context_p* context = (Context_p*)context_;
 	MQTTAsync client = context->client; // >connlost
 	MQTTAsync_responseOptions opts = MQTTAsync_responseOptions_initializer; // Response Options (... = [Default Initializer Macro])
 	MQTTAsync_message pubmsg = MQTTAsync_message_initializer; // Message Object (... = [Default Initializer Macro])
@@ -184,15 +180,17 @@ int messageArrived_p(void* context_, char* topicName, int topicLen, MQTTAsync_me
 
 // Publish Functions
 
-int publishStatus(char username_p[64], char topic_p[64], char payload_p[1024]) // Publish User Status (Online / Offline)
+int publisherStatus(const char* username_p, const char* topic_p, const char* payload_p) // Publish User Status (Online / Offline)
 {
     MQTTAsync_setTraceLevel(MQTTASYNC_TRACE_PROTOCOL);
 	MQTTAsync client; // Client (Handler) | Connection To Broker
 	MQTTAsync_connectOptions conn_opts = MQTTAsync_connectOptions_initializer; // Connection Options (... = [Default Initializer Macro])
 	int rc; // Return Code For Function Calls
-    finished_p = 0; // Reset finished_p
+    // Reset Parameters
+	finished_p = 0;
 
 	// Create Client
+
 	if ((rc = MQTTAsync_create(&client, ADDRESS_P, username_p, MQTTCLIENT_PERSISTENCE_NONE, NULL)) != MQTTASYNC_SUCCESS)
 	{
 		printf("Publisher: Failed to create client object, return code %d\n", rc);
@@ -200,15 +198,16 @@ int publishStatus(char username_p[64], char topic_p[64], char payload_p[1024]) /
 	}
 
     // Create Context
-    Context* context = malloc(sizeof(Context));
+
+    Context_p* context = malloc(sizeof(Context_p));
     context->client = client;
     strcpy(context->username_p, username_p);
     strcpy(context->topic_p, topic_p);
     strcpy(context->payload_p, payload_p);
 
 	// Set Callbacks
-	// Uses Second Argument To Store The Context (State) | In This Case, Only The Client Itself
-	if ((rc = MQTTAsync_setCallbacks(client, context, connlost_p, messageArrived_p, NULL)) != MQTTASYNC_SUCCESS)
+
+	if ((rc = MQTTAsync_setCallbacks(client, context, connectionLost_p, messageArrived_p, NULL)) != MQTTASYNC_SUCCESS)
 	{
 		printf("Publisher: Failed to set callback, return code %d\n", rc);
         free(context);
