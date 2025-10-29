@@ -50,6 +50,11 @@ void onDisconnect_s(void* context_, MQTTAsync_successData* response);
 void onSubscribe_s(void* context_, MQTTAsync_successData* response);
 void onSubscribeFailure_s(void* context_, MQTTAsync_failureData* response);
 int subscriberStatus(const char* username_p, const char* topic_p, LinkedList* status_list);
+void updateGroup(const char* payload);
+void processGroupRequest(const char* payload, const char* username);
+void processGroupResponse(const char* payload, const char* username);
+
+
 
 // Callbacks
 
@@ -93,6 +98,20 @@ int messageArrived_s(void *context_, char *topicName, int topicLen, MQTTAsync_me
     printf("\nSubscriber: Message arrived\n");
     printf("     topic: %s\n", topicName);
     printf("   message: %s\n\n", buf);
+
+    // mensagem de grupo
+    if (strcmp(topicName, "GROUPS") == 0) {
+        updateGroup(buf);
+    }
+    else if (strstr(topicName, "_Control") != NULL) {
+        printf("Mensagem de controle recebida no tópico %s:\n", topicName);
+        printf("Conteúdo: %s\n", buf);
+
+        if (strstr(buf, "JOIN_REQUEST") != NULL) {
+            printf("Solicitação de entrada recebida: %s\n", buf);
+            listInsertStatus(context->message_list, buf);
+        }
+    }
 
     listInsertStatus(context->message_list, buf); // Insert Status In The List
 
@@ -162,6 +181,12 @@ void onConnect_s(void* context_, MQTTAsync_successData* response) // Connected S
     if ((rc = MQTTAsync_subscribe(client, context->topic_s, QOS_S, &opts)) != MQTTASYNC_SUCCESS)
     {
         printf("Subscriber: Failed to start subscribe, return code %d\n", rc);
+        finished_subscribe = 1;
+    }
+
+    // Subscribe to GROUPS topic
+    if ((rc = MQTTAsync_subscribe(client, "GROUPS", QOS_S, &opts)) != MQTTASYNC_SUCCESS) {
+        printf("Subscriber: Failed to subscribe to GROUPS, return code %d\n", rc);
         finished_subscribe = 1;
     }
 }

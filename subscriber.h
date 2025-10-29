@@ -16,6 +16,10 @@ extern "C" {
    Use const char* for string arguments. */
 int subscriberStatus(const char* username_p, const char* topic_p, LinkedList* status_list);
 
+void processGroupRequest(const char* payload, const char* username);
+void processGroupResponse(const char* payload, const char* username);
+void updateGroup(const char* payload);
+
 #ifdef __cplusplus
 }
 #endif
