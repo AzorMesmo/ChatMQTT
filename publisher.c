@@ -28,7 +28,8 @@ typedef struct
     MQTTAsync client;
     char username_p[64];
     char topic_p[64];
-    char payload_p[1024];   
+    char payload_p[1024];
+	int retained;
 } Context_p;
 
 // Flags
@@ -54,12 +55,12 @@ void connectionLost_p(void *context_, char *cause) // Connection Lost
     Context_p* context = (Context_p*)context_;
 	MQTTAsync client = context->client; // Cast context Back To The Original Type (void* -> MQTTAsync) To Be Able To Use
 	MQTTAsync_connectOptions conn_opts = MQTTAsync_connectOptions_initializer; // Connection Options (... = [Default Initializer Macro])
-	int rc; // >main
+	int rc;
 
-	printf("\nPublisher: Connection lost\n");
+	printf("\n               [LOG] Publisher: Connection lost\n");
 	if (cause)
 		printf("     cause: %s\n", cause);
-	printf("Publisher: Reconnecting\n");
+	printf("               [LOG] Publisher: Reconnecting\n");
 
 	// Connection Parameters
 	conn_opts.keepAliveInterval = 20;
@@ -71,31 +72,31 @@ void connectionLost_p(void *context_, char *cause) // Connection Lost
 	// Try To Connect Again
 	if ((rc = MQTTAsync_connect(client, &conn_opts)) != MQTTASYNC_SUCCESS)
 	{
-		printf("Publisher: Failed to start connect, return code %d\n", rc);
+		printf("               [LOG] Publisher: Failed to start connect, return code %d\n", rc);
  		finished_p = 1;
 	}
 }
 
 void onDisconnectFailure_p(void* context_, MQTTAsync_failureData* response) // Fails To Disconnect
 {
-	printf("Publisher: Disconnect failed\n");
+	printf("               [LOG] Publisher: Disconnect failed\n");
 	finished_p = 1;
 }
 
 void onDisconnect_p(void* context_, MQTTAsync_successData* response) // Disconnected Successfuly
 {
-	printf("Publisher: Successful disconnection\n");
+	printf("               [LOG] Publisher: Successful disconnection\n");
 	finished_p = 1;
 }
 
 void onSendFailure_p(void* context_, MQTTAsync_failureData* response) // Fails To Publish Message
 {
     Context_p* context = (Context_p*)context_;
-	MQTTAsync client = context->client; // >connlost
+	MQTTAsync client = context->client;
 	MQTTAsync_disconnectOptions opts = MQTTAsync_disconnectOptions_initializer; // Disconnection Options (... = [Default Initializer Macro])
-	int rc; // >main
+	int rc;
 
-	printf("Publisher: Message send failed token %d error code %d\n", response->token, response->code);
+	printf("               [LOG] Publisher: Message send failed token %d error code %d\n", response->token, response->code);
 
 	// Disconnection Parameters
 	opts.onSuccess = onDisconnect_p;
@@ -105,7 +106,7 @@ void onSendFailure_p(void* context_, MQTTAsync_failureData* response) // Fails T
 	// Disconnect To Broker
 	if ((rc = MQTTAsync_disconnect(client, &opts)) != MQTTASYNC_SUCCESS)
 	{
-		printf("Publisher: Failed to start disconnect, return code %d\n", rc);
+		printf("               [LOG] Publisher: Failed to start disconnect, return code %d\n", rc);
         free(context);
 		exit(EXIT_FAILURE);
 	}
@@ -114,11 +115,11 @@ void onSendFailure_p(void* context_, MQTTAsync_failureData* response) // Fails T
 void onSend_p(void* context_, MQTTAsync_successData* response) // Publish Message Successfuly
 {
     Context_p* context = (Context_p*)context_;
-	MQTTAsync client = context->client; // >connlost
+	MQTTAsync client = context->client;
 	MQTTAsync_disconnectOptions opts = MQTTAsync_disconnectOptions_initializer; // Disconnection Options (... = [Default Initializer Macro])
-	int rc; // >main
+	int rc;
 
-	printf("Message with token value %d delivery confirmed\n", response->token);
+	printf("               [LOG] Message with token value %d delivery confirmed\n", response->token);
 
 	// Disconnection Parameters
 	opts.onSuccess = onDisconnect_p;
@@ -128,7 +129,7 @@ void onSend_p(void* context_, MQTTAsync_successData* response) // Publish Messag
 	// Disconnect To Broker
 	if ((rc = MQTTAsync_disconnect(client, &opts)) != MQTTASYNC_SUCCESS)
 	{
-		printf("Publisher: Failed to start disconnect, return code %d\n", rc);
+		printf("               [LOG] Publisher: Failed to start disconnect, return code %d\n", rc);
         free(context);
 		exit(EXIT_FAILURE);
 	}
@@ -137,7 +138,7 @@ void onSend_p(void* context_, MQTTAsync_successData* response) // Publish Messag
 
 void onConnectFailure_p(void* context_, MQTTAsync_failureData* response) // Fails To Connect
 {
-	printf("Publisher: Connect failed, rc %d\n", response ? response->code : 0);
+	printf("               [LOG] Publisher: Connect failed, rc %d\n", response ? response->code : 0);
 	finished_p = 1;
 }
 
@@ -148,9 +149,9 @@ void onConnect_p(void* context_, MQTTAsync_successData* response) // Connected S
 	MQTTAsync client = context->client; // >connlost
 	MQTTAsync_responseOptions opts = MQTTAsync_responseOptions_initializer; // Response Options (... = [Default Initializer Macro])
 	MQTTAsync_message pubmsg = MQTTAsync_message_initializer; // Message Object (... = [Default Initializer Macro])
-	int rc; // >main
+	int rc;
 
-	printf("Publisher: Successful connection\n");
+	printf("               [LOG] Publisher: Successful connection\n");
 
 	// Response & Message Parameters
 	opts.onSuccess = onSend_p;
@@ -159,12 +160,12 @@ void onConnect_p(void* context_, MQTTAsync_successData* response) // Connected S
 	pubmsg.payload = context->payload_p; // Message
 	pubmsg.payloadlen = (int)strlen(context->payload_p); // Message Size
 	pubmsg.qos = QOS_P;
-	pubmsg.retained = 0; // If Message Will Be Retained By The Broker
+	pubmsg.retained = context->retained; // If Message Will Be Retained By The Broker
 
 	// Send Message
 	if ((rc = MQTTAsync_sendMessage(client, context->topic_p, &pubmsg, &opts)) != MQTTASYNC_SUCCESS)
 	{
-		printf("Publisher: Failed to start sendMessage, return code %d\n", rc);
+		printf("               [LOG] Publisher: Failed to start sendMessage, return code %d\n", rc);
         free(context);
 		exit(EXIT_FAILURE);
 	}
@@ -178,7 +179,7 @@ int messageArrived_p(void* context_, char* topicName, int topicLen, MQTTAsync_me
 	return 1;
 }
 
-// Publish Functions
+// Main Functions
 
 int publisherStatus(const char* username_p, const char* topic_p, const char* payload_p) // Publish User Status (Online / Offline)
 {
@@ -193,7 +194,7 @@ int publisherStatus(const char* username_p, const char* topic_p, const char* pay
 
 	if ((rc = MQTTAsync_create(&client, ADDRESS_P, username_p, MQTTCLIENT_PERSISTENCE_NONE, NULL)) != MQTTASYNC_SUCCESS)
 	{
-		printf("Publisher: Failed to create client object, return code %d\n", rc);
+		printf("               [LOG] Publisher: Failed to create client object, return code %d\n", rc);
 		exit(EXIT_FAILURE);
 	}
 
@@ -204,17 +205,19 @@ int publisherStatus(const char* username_p, const char* topic_p, const char* pay
     strcpy(context->username_p, username_p);
     strcpy(context->topic_p, topic_p);
     strcpy(context->payload_p, payload_p);
+	context->retained = 1;
 
 	// Set Callbacks
 
 	if ((rc = MQTTAsync_setCallbacks(client, context, connectionLost_p, messageArrived_p, NULL)) != MQTTASYNC_SUCCESS)
 	{
-		printf("Publisher: Failed to set callback, return code %d\n", rc);
+		printf("               [LOG] Publisher: Failed to set callback, return code %d\n", rc);
         free(context);
 		exit(EXIT_FAILURE);
 	}
 
 	// Connection Parameters
+
 	conn_opts.keepAliveInterval = 20;
 	conn_opts.cleansession = 1; // Persistance
 	conn_opts.onSuccess = onConnect_p; // Calls onConnect If Connect Successfuly
@@ -222,15 +225,17 @@ int publisherStatus(const char* username_p, const char* topic_p, const char* pay
 	conn_opts.context = context;
 
 	// Connect To Broker
+
 	if ((rc = MQTTAsync_connect(client, &conn_opts)) != MQTTASYNC_SUCCESS)
 	{
-		printf("Publisher: Failed to start connect, return code %d\n", rc);
+		printf("               [LOG] Publisher: Failed to start connect, return code %d\n", rc);
         free(context);
 		exit(EXIT_FAILURE);
 	}
 
 	// Wait For Completion
-	printf("Publisher: Waiting for publication of '%s' on topic %s for client with ClientID: %s\n", payload_p, topic_p, username_p);
+
+	printf("               [LOG] Publisher: Waiting for publication of '%s' on topic %s for client with ClientID: %s\n", payload_p, topic_p, username_p);
 	while (!finished_p)
 		#if defined(_WIN32)
 			Sleep(100);
@@ -239,7 +244,13 @@ int publisherStatus(const char* username_p, const char* topic_p, const char* pay
 		#endif
 
     // Exit
+
 	MQTTAsync_destroy(&client);
     free(context);
  	return rc;
+}
+
+int publisherGroups(const char* username_p, const char* topic_p, const char* payload_p) // Publish User Status (Online / Offline)
+{
+// WIP
 }

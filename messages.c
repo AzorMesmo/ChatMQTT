@@ -30,7 +30,7 @@ void listInsert(LinkedList* list, const char* message) {
 
     Node* new_node = malloc(sizeof(Node));
     if (!new_node) {
-        perror("malloc failed");
+        perror("               [LOG] List Node Malloc Failed");
         pthread_mutex_unlock(&list->lock);
         return;
     }
@@ -94,61 +94,18 @@ void listPrint(const LinkedList* list) {
     pthread_mutex_unlock((pthread_mutex_t*)&list->lock);
 }
 
-// Advanced Functions
+void listClear(LinkedList* list) {
+    if (!list) return;
 
-// Update Status (Only Insert In The List If It's Not Duplicated. If Status Is Different, Replace It)
-void listInsertStatus(LinkedList* list, const char* message) {
     pthread_mutex_lock(&list->lock);
 
-    // Extract Username (Before ':')
-    char username[256];
-    const char* colon = strchr(message, ':');
-
-    // If Don't Have ':' > Invalid Format
-    if (!colon) {
-        fprintf(stderr, "Invalid message format: %s\n", message);
-        pthread_mutex_unlock(&list->lock);
-        return;
-    }
-
-    // Get Username
-    size_t len = colon - message;
-    if (len >= sizeof(username))
-        len = sizeof(username) - 1;
-    strncpy(username, message, len);
-    username[len] = '\0'; // Need To Add The Null Terminator Because Of strncpy
-
-    // Search For Existing Message From Same User
-    Node *curr = list->head, *prev = NULL;
+    Node* curr = list->head;
     while (curr) {
-        // (curr->message[len] == ':') > Avoid Miss Matching Usernames Like "Examp" And "Example"
-        if (strncmp(curr->message, username, len) == 0 && curr->message[len] == ':') {
-            // Found Username
-            if (strcmp(curr->message, message) == 0) {
-                // Same Status > Do Nothing
-                pthread_mutex_unlock(&list->lock);
-                return;
-            }
-            // Different Status > Replace Message
-            strncpy(curr->message, message, sizeof(curr->message) - 1);
-            curr->message[sizeof(curr->message) - 1] = '\0'; // Need To Add The Null Terminator Because Of strncpy
-            pthread_mutex_unlock(&list->lock);
-            return;
-        }
-        prev = curr;
+        Node* tmp = curr;
         curr = curr->next;
+        free(tmp);
     }
+    list->head = NULL;
 
-    // New User (No Messages) > Insert New Node
-    Node* new_node = malloc(sizeof(Node));
-    if (!new_node) {
-        perror("Status List Node: Malloc Failed");
-        pthread_mutex_unlock(&list->lock);
-        return;
-    }
-    strncpy(new_node->message, message, sizeof(new_node->message) - 1);
-    new_node->message[sizeof(new_node->message) - 1] = '\0'; // Need To Add The Null Terminator Because Of strncpy
-    new_node->next = list->head;
-    list->head = new_node;
     pthread_mutex_unlock(&list->lock);
 }

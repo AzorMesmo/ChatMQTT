@@ -21,6 +21,11 @@
 
 // Parameters
 
+#define DELAY_5_SEC_MS 5000
+#define DELAY_5_SEC_US 5000000L
+#define DELAY_10_SEC_MS 10000
+#define DELAY_10_SEC_US 10000000L
+
 volatile int online = 1;
 
 // Thread Function Arguments
@@ -28,264 +33,260 @@ volatile int online = 1;
 typedef struct // Publish Arguments
 {
     char username[64];
-    char topic[64];
+    char topic[128];
     char payload[1024];
 } PublishArgs;
 
 typedef struct // Subscriber Arguments
 {
     char username[64];
-    char topic[64];
+    char topic[128];
 	LinkedList* message_list;
 } SubscribeArgs;
 
-typedef struct { //Groups
+typedef struct // Groups
+{ 
     char name[64];
     char leader[64];
     char members[10][64]; // Exemplo: até 10 membros
     int members_count;
 } Group;
-Group groups[10];
-int groups_count = 0;
 
 // Thread Function Wrappers
 
-void* statusHeartbeat(void* arg) // Keep Sending Status To USERS Topic (publisherStatus)
-{
-    PublishArgs* args = (PublishArgs*)arg;
+// WIP
 
-    while (online)
-    {
-        publisherStatus(args->username, args->topic, args->payload);
+// Default Functions
 
-        for (int i = 0; i < 3000 && online; i++) { // 10ms * 3000 = 30s
-            #if defined(_WIN32)
-                Sleep(10); // 10ms
-            #else
-                usleep(10000L); // 10ms
-            #endif
-        }
-    }
+void setStatus(const char* username, const char* status) {
+    char topic[80];
+    char payload[128];
 
-    return NULL;
+    snprintf(topic, sizeof(topic), "USERS/%s", username);
+    snprintf(payload, sizeof(payload), "%s:%s", username, status);
+
+    publisherStatus(username, topic, payload);
 }
 
-//atualiza grupo quando mensagem chega no tópico GROUPS
-void updateGroup(const char* payload) {
-    char groupName[64], leaderName[64], membersStr[256];
-    sscanf(payload, "GROUP:%63[^;];LEADER:%63[^;];MEMBERS:%255[^\n]", 
-           groupName, leaderName, membersStr);
-
-    //se o grupo já existe
-    int i;
-    for (i = 0; i < groups_count; i++) {
-        if (strcmp(groups[i].name, groupName) == 0) break;
-    }
-
-    //cria novo grupo
-    if (i == groups_count) {
-        strncpy(groups[groups_count].name, groupName, 64);
-        strncpy(groups[groups_count].leader, leaderName, 64);
-        groups[groups_count].members_count = 0;
-        groups_count++;
-    }
-
-    // atualiza membros
-    char* token = strtok(membersStr, ",");
-    groups[i].members_count = 0;
-    while (token && groups[i].members_count < 10) {
-        strncpy(groups[i].members[groups[i].members_count], token, 64);
-        groups[i].members_count++;
-        token = strtok(NULL, ",");
-    }
+void getUsers(const char* username, LinkedList* status_list) {
+    listClear(status_list);
+    subscriberUsers(username, "USERS/+", status_list);
+    printf("\n= Usuário:Status =\n");
+    listPrint(status_list);
 }
 
-void createGroup(const char* groupName, const char* leaderName) {
-    char payload[1024];
-    snprintf(payload, sizeof(payload), "GROUP:%s;LEADER:%s;MEMBERS:%s", groupName, leaderName, leaderName);
+// //atualiza grupo quando mensagem chega no tópico GROUPS
+// void updateGroup(const char* payload, int groups_count) {
+//     char groupName[64], leaderName[64], membersStr[256];
+//     sscanf(payload, "GROUP:%63[^;];LEADER:%63[^;];MEMBERS:%255[^\n]", 
+//            groupName, leaderName, membersStr);
 
-    updateGroup(payload);
+//     //se o grupo já existe
+//     int i;
+//     for (i = 0; i < groups_count; i++) {
+//         if (strcmp(groups[i].name, groupName) == 0) break;
+//     }
 
-    publisherStatus(leaderName, "GROUPS", payload);
-    printf("Grupo '%s' criado com líder '%s'\n", groupName, leaderName);
-}
+//     //cria novo grupo
+//     if (i == groups_count) {
+//         strncpy(groups[groups_count].name, groupName, 64);
+//         strncpy(groups[groups_count].leader, leaderName, 64);
+//         groups[groups_count].members_count = 0;
+//         groups_count++;
+//     }
 
-void listGroups() {
-    printf("Listagem dos grupos cadastrados:\n\n");
+//     // atualiza membros
+//     char* token = strtok(membersStr, ",");
+//     groups[i].members_count = 0;
+//     while (token && groups[i].members_count < 10) {
+//         strncpy(groups[i].members[groups[i].members_count], token, 64);
+//         groups[i].members_count++;
+//         token = strtok(NULL, ",");
+//     }
+// }
 
-    if (groups_count == 0) {
-        printf("Nenhum grupo cadastrado.\n");
-        return;
-    }
+// void createGroup(const char* groupName, const char* leaderName, int groups_count) {
+//     char payload[1024];
+//     snprintf(payload, sizeof(payload), "GROUP:%s;LEADER:%s;MEMBERS:%s", groupName, leaderName, leaderName);
 
-    for (int i = 0; i < groups_count; i++) {
-        printf("Grupo: %s\n", groups[i].name);
-        printf("Líder: %s\n", groups[i].leader);
-        printf("Membros: ");
-        if (groups[i].members_count == 0) {
-            printf("Nenhum membro\n");
-        } else {
-            for (int j = 0; j < groups[i].members_count; j++) {
-                printf("%s", groups[i].members[j]);
-                if (j < groups[i].members_count - 1) printf(", ");
-            }
-        }
-        printf("\n\n");
-    }
-}
+//     updateGroup(payload, groups_count);
 
-//SOLICITAÇÃO P ENTRAR EM GRUPOS
+//     publisherStatus(leaderName, "GROUPS", payload);
+//     printf("Grupo '%s' criado com líder '%s'\n", groupName, leaderName);
+// }
 
-void requestJoinGroup(const char* groupName, const char* username, const char* leaderName) {
-    char payload[256];
-    snprintf(payload, sizeof(payload), "JOIN_REQUEST;GROUP:%s;USER:%s", groupName, username);
+// void listGroups() {
+//     printf("Listagem dos grupos cadastrados:\n\n");
 
-    char leader_topic[80];
-    snprintf(leader_topic, sizeof(leader_topic), "%s_Control", leaderName);
-    publisherStatus(username, leader_topic, payload); // publica no tópico de controle do líder
-    printf("Solicitação enviada para '%s' para entrar no grupo '%s'\n", leaderName, groupName);
-}
+//     if (groups_count == 0) {
+//         printf("Nenhum grupo cadastrado.\n");
+//         return;
+//     }
 
-// processa solicitações recebidas
-void processGroupRequest(const char* payload, const char* username) {
-    char action[32], groupName[64], requester[64];
-    if (sscanf(payload, "%31[^;];GROUP:%63[^;];USER:%63s", action, groupName, requester) != 3)
-        return;
+//     for (int i = 0; i < groups_count; i++) {
+//         printf("Grupo: %s\n", groups[i].name);
+//         printf("Líder: %s\n", groups[i].leader);
+//         printf("Membros: ");
+//         if (groups[i].members_count == 0) {
+//             printf("Nenhum membro\n");
+//         } else {
+//             for (int j = 0; j < groups[i].members_count; j++) {
+//                 printf("%s", groups[i].members[j]);
+//                 if (j < groups[i].members_count - 1) printf(", ");
+//             }
+//         }
+//         printf("\n\n");
+//     }
+// }
 
-    if (strcmp(action, "JOIN_REQUEST") == 0) {
-        printf("\nUsuário '%s' quer entrar no grupo '%s'. Aceitar? (s/n): ", requester, groupName);
-        char resp;
-        scanf(" %c", &resp);
-        if (resp == 's' || resp == 'S') {
-            // Aceitar: adiciona membro e publica atualização
-            for (int i = 0; i < groups_count; i++) {
-                if (strcmp(groups[i].name, groupName) == 0) {
-                    if (groups[i].members_count < 10) {
-                        strncpy(groups[i].members[groups[i].members_count], requester, 64);
-                        groups[i].members_count++;
-                    }
-                    break;
-                }
-            }
+// //SOLICITAÇÃO P ENTRAR EM GRUPOS
+// void requestJoinGroup(const char* groupName, const char* username, const char* leaderName) {
+//     char payload[256];
+//     snprintf(payload, sizeof(payload), "JOIN_REQUEST;GROUP:%s;USER:%s", groupName, username);
 
-            //atualiza tópico GROUPS
-            char membersStr[256] = "";
-            for (int i = 0; i < groups_count; i++) {
-                if (strcmp(groups[i].name, groupName) == 0) {
-                    for (int j = 0; j < groups[i].members_count; j++) {
-                        strcat(membersStr, groups[i].members[j]);
-                        if (j < groups[i].members_count - 1) strcat(membersStr, ",");
-                    }
-                    break;
-                }
-            }
-            char updatePayload[512];
-            snprintf(updatePayload, sizeof(updatePayload), "GROUP:%s;LEADER:%s;MEMBERS:%s", groupName, username, membersStr);
-            publisherStatus(username, "GROUPS", updatePayload);
+//     char leader_topic[80];
+//     snprintf(leader_topic, sizeof(leader_topic), "%s_Control", leaderName);
+//     publisherStatus(username, leader_topic, payload); // publica no tópico de controle do líder
+//     printf("Solicitação enviada para '%s' para entrar no grupo '%s'\n", leaderName, groupName);
+// }
 
-            //resposta ao solicitante
-            char reply[128];
-            snprintf(reply, sizeof(reply), "JOIN_ACCEPT;GROUP:%s;USER:%s", groupName, username);
-            char requester_topic[80];
-            snprintf(requester_topic, sizeof(requester_topic), "%s_Control", requester);
-            publisherStatus(username, requester_topic, reply);
+// // processa solicitações recebidas
+// void processGroupRequest(const char* payload, const char* username) {
+//     char action[32], groupName[64], requester[64];
+//     if (sscanf(payload, "%31[^;];GROUP:%63[^;];USER:%63s", action, groupName, requester) != 3)
+//         return;
 
-            printf("Solicitação aceita e grupo atualizado.\n");
-        } else {
-            char reply[128];
-            snprintf(reply, sizeof(reply), "JOIN_REJECT;GROUP:%s;USER:%s", groupName, username);
-            publisherStatus(username, requester, reply);
-            printf("Solicitação rejeitada.\n");
-        }
-    }
-}
+//     if (strcmp(action, "JOIN_REQUEST") == 0) {
+//         printf("\nUsuário '%s' quer entrar no grupo '%s'. Aceitar? (s/n): ", requester, groupName);
+//         char resp;
+//         scanf(" %c", &resp);
+//         if (resp == 's' || resp == 'S') {
+//             // Aceitar: adiciona membro e publica atualização
+//             for (int i = 0; i < groups_count; i++) {
+//                 if (strcmp(groups[i].name, groupName) == 0) {
+//                     if (groups[i].members_count < 10) {
+//                         strncpy(groups[i].members[groups[i].members_count], requester, 64);
+//                         groups[i].members_count++;
+//                     }
+//                     break;
+//                 }
+//             }
 
-// processa respostas de solicitação
-void processGroupResponse(const char* payload, const char* username) {
-    char action[32], groupName[64], responder[64];
-    if (sscanf(payload, "%31[^;];GROUP:%63[^;];USER:%63s", action, groupName, responder) != 3)
-        return;
+//             //atualiza tópico GROUPS
+//             char membersStr[256] = "";
+//             for (int i = 0; i < groups_count; i++) {
+//                 if (strcmp(groups[i].name, groupName) == 0) {
+//                     for (int j = 0; j < groups[i].members_count; j++) {
+//                         strcat(membersStr, groups[i].members[j]);
+//                         if (j < groups[i].members_count - 1) strcat(membersStr, ",");
+//                     }
+//                     break;
+//                 }
+//             }
+//             char updatePayload[512];
+//             snprintf(updatePayload, sizeof(updatePayload), "GROUP:%s;LEADER:%s;MEMBERS:%s", groupName, username, membersStr);
+//             publisherStatus(username, "GROUPS", updatePayload);
 
-    if (strcmp(action, "JOIN_ACCEPT") == 0) {
-        printf("Sua solicitação para entrar no grupo '%s' foi aceita por '%s'\n", groupName, responder);
-    } else if (strcmp(action, "JOIN_REJECT") == 0) {
-        printf("Sua solicitação para entrar no grupo '%s' foi rejeitada por '%s'\n", groupName, responder);
-    }
-}
+//             //resposta ao solicitante
+//             char reply[128];
+//             snprintf(reply, sizeof(reply), "JOIN_ACCEPT;GROUP:%s;USER:%s", groupName, username);
+//             char requester_topic[80];
+//             snprintf(requester_topic, sizeof(requester_topic), "%s_Control", requester);
+//             publisherStatus(username, requester_topic, reply);
 
+//             printf("Solicitação aceita e grupo atualizado.\n");
+//         } else {
+//             char reply[128];
+//             snprintf(reply, sizeof(reply), "JOIN_REJECT;GROUP:%s;USER:%s", groupName, username);
+//             publisherStatus(username, requester, reply);
+//             printf("Solicitação rejeitada.\n");
+//         }
+//     }
+// }
 
-void checkGroupRequests(const char* username) {
-    LinkedList temp_list;
-    listInit(&temp_list);
+// // processa respostas de solicitação
+// void processGroupResponse(const char* payload, const char* username) {
+//     char action[32], groupName[64], responder[64];
+//     if (sscanf(payload, "%31[^;];GROUP:%63[^;];USER:%63s", action, groupName, responder) != 3)
+//         return;
 
-    SubscribeArgs controlArgs;
-    strncpy(controlArgs.username, username, 64);
-    snprintf(controlArgs.topic, 64, "%s_Control", username);
-    controlArgs.message_list = &temp_list;
+//     if (strcmp(action, "JOIN_ACCEPT") == 0) {
+//         printf("Sua solicitação para entrar no grupo '%s' foi aceita por '%s'\n", groupName, responder);
+//     } else if (strcmp(action, "JOIN_REJECT") == 0) {
+//         printf("Sua solicitação para entrar no grupo '%s' foi rejeitada por '%s'\n", groupName, responder);
+//     }
+// }
 
-    //chama subscriber apenas uma vez para ler mensagens
-    subscriberStatus(controlArgs.username, controlArgs.topic, controlArgs.message_list);
+// void checkGroupRequests(const char* username) {
+//     LinkedList temp_list;
+//     listInit(&temp_list);
 
-    //processa cada mensagem recebida
-    Node* node = temp_list.head;
-    while (node) {
-        processGroupRequest(node->message, username);
-        processGroupResponse(node->message, username);
-        node = node->next;
-    }
+//     SubscribeArgs controlArgs;
+//     strncpy(controlArgs.username, username, 64);
+//     snprintf(controlArgs.topic, 64, "%s_Control", username);
+//     controlArgs.message_list = &temp_list;
 
-    //limpa a lista temporária
-    Node* n = temp_list.head;
-    while (n) {
-        Node* tmp = n;
-        n = n->next;
-        free(tmp); // não precisa free(tmp->message) porque é array interno
-    }
-    temp_list.head = NULL;
-}
+//     //chama subscriber apenas uma vez para ler mensagens
+//     subscriberUsers(controlArgs.username, controlArgs.topic, controlArgs.message_list);
 
+//     //processa cada mensagem recebida
+//     Node* node = temp_list.head;
+//     while (node) {
+//         processGroupRequest(node->message, username);
+//         processGroupResponse(node->message, username);
+//         node = node->next;
+//     }
 
-void startConversation() {
-    printf("Funcionalidade de conversa ainda não implementada.\n");
-}
+//     //limpa a lista temporária
+//     Node* n = temp_list.head;
+//     while (n) {
+//         Node* tmp = n;
+//         n = n->next;
+//         free(tmp); // não precisa free(tmp->message) porque é array interno
+//     }
+//     temp_list.head = NULL;
+// }
 
-void showRequestHistory() {
-    printf("Histórico.\n");
-}
+// void startConversation() {
+//     printf("Funcionalidade de conversa ainda não implementada.\n");
+// }
 
-void listClear(LinkedList* list) {
-    Node* current = list->head;
-    while (current) {
-        Node* tmp = current;
-        current = current->next;
-        free(tmp); // se message for alocado dinamicamente, faça free(tmp->message);
-    }
-    list->head = NULL;
-}
+// void showRequestHistory() {
+//     printf("Histórico.\n");
+// }
 
-void* subscriberControlThread(void* arg) { //nao funciona, era pra ficar verificando solicitações
-    SubscribeArgs* args = (SubscribeArgs*)arg;
+// void listClear(LinkedList* list) {
+//     Node* current = list->head;
+//     while (current) {
+//         Node* tmp = current;
+//         current = current->next;
+//         free(tmp); // se message for alocado dinamicamente, faça free(tmp->message);
+//     }
+//     list->head = NULL;
+// }
 
-    while (online) {
-        Node* node = args->message_list->head;
-        while (node) {
-            processGroupRequest(node->message, args->username);
-            processGroupResponse(node->message, args->username);
-            node = node->next;
-        }
+// void* subscriberControlThread(void* arg) { //nao funciona, era pra ficar verificando solicitações
+//     SubscribeArgs* args = (SubscribeArgs*)arg;
 
-        listClear(args->message_list); // limpa mensagens já processadas
+//     while (online) {
+//         Node* node = args->message_list->head;
+//         while (node) {
+//             processGroupRequest(node->message, args->username);
+//             processGroupResponse(node->message, args->username);
+//             node = node->next;
+//         }
 
-        #if defined(_WIN32)
-            Sleep(500);
-        #else
-            usleep(500000L); // 0,5s
-        #endif
-    }
+//         listClear(args->message_list); // limpa mensagens já processadas
 
-    return NULL;
-}
+//         #if defined(_WIN32)
+//             Sleep(500);
+//         #else
+//             usleep(500000L); // 0,5s
+//         #endif
+//     }
 
+//     return NULL;
+// }
 
 // Main Function
 
@@ -298,153 +299,178 @@ int main()
     char username[64];
     printf("\nChatMQTT\n\nDigite Seu Nome De Usuário (Máximo 63 Caractéres): ");
     scanf("%63s", username); // Limit Username Input To 63 Characters + '\0'
-    printf("\nBem Vindo, %s!\n\n", username);
 
-    printf("---------- PROGRAM LOG ----------\n\n");
+    if (strlen(username) == 0) {
+        printf("Nome de usuário inválido.\n");
+        return 1;
+    }
+
+    printf("\nBem Vindo, %s!\n\n", username);
 
     // Threads Parameters
 
-    pthread_t threads[1]; // Threads Handler
+    pthread_t threads[0]; // Threads Handler
     // Total Threads Number Is Based On The Maximum Possible Concurrent Threads:
     // Messages Queue (WIP)
-    // Status Publisher
-    // Status Subscriber (WIP)
     int threads_running = 0; // Threads Counter
 
     // Queues Initialization
+
     LinkedList status_list; // Status List
     listInit(&status_list);
 
-    // Send Online Status (USERS Topic)
+    // LinkedList group_list; // Groups List
+    // listInit(&group_list);
 
-    PublishArgs pubArgs; // Function statusHeartbeat Arguments
-    strncpy(pubArgs.username, username, 64); // Username
-    strncpy(pubArgs.topic, "USERS", 64); // Topic
-    char payload[1024];
-    snprintf(payload, sizeof(payload), "%s: Online", username);
-    strncpy(pubArgs.payload, payload, 1024); // Payload
+    // Send Online Status (USERS)
 
-    threads_running += 1;
-    if (pthread_create(&threads[0], NULL, statusHeartbeat, &pubArgs) != 0) // Status Heartbeat
-    {
-        perror("Failed To Create The Subscriber");
-        threads_running -= 1;
-        return 1;
-    }
+    setStatus(username, "Online");
+
+    // Group groups[10];
+    // int groups_count = 0;
+    // char groupName[64];
     
 
-    #if defined(_WIN32)
-			Sleep(2500);
-		#else
-			usleep(2500000L);
-		#endif
+    // #if defined(_WIN32)
+	// 		Sleep(2500);
+	// 	#else
+	// 		usleep(2500000L);
+	// 	#endif
 
-    printf("\n---------- PROGRAM LOG ----------\n\n");
+    // SubscribeArgs controlArgs;
+    // strncpy(controlArgs.username, username, 64);
+    // snprintf(controlArgs.topic, 64, "%s_Control", username); // X_control
+    // controlArgs.message_list = &group_list;
 
-    LinkedList group_list;
-    listInit(&group_list);
+    // SubscribeArgs groupsArgs;
+    // strncpy(groupsArgs.username, username, 64);
+    // strncpy(groupsArgs.topic, "GROUPS", 64);
+    // groupsArgs.message_list = &group_list;
 
-    SubscribeArgs controlArgs;
-    strncpy(controlArgs.username, username, 64);
-    snprintf(controlArgs.topic, 64, "%s_Control", username); // X_control
-    controlArgs.message_list = &group_list;
+    // pthread_t subThreads[2];
+    // pthread_create(&subThreads[0], NULL, subscriberControlThread, &controlArgs);
+    // pthread_create(&subThreads[1], NULL, subscriberControlThread, &groupsArgs);
 
-    SubscribeArgs groupsArgs;
-    strncpy(groupsArgs.username, username, 64);
-    strncpy(groupsArgs.topic, "GROUPS", 64);
-    groupsArgs.message_list = &group_list;
-
-    pthread_t subThreads[2];
-    pthread_create(&subThreads[0], NULL, subscriberControlThread, &controlArgs);
-    pthread_create(&subThreads[1], NULL, subscriberControlThread, &groupsArgs);
-
+    // Startup Safety Delay
 
     #if defined(_WIN32)
-        Sleep(1000); 
+        Sleep(DELAY_5_SEC_MS); 
     #else
-        usleep(1000000L); 
+        usleep(DELAY_5_SEC_US);
     #endif
-
-
 
     // ----- Program Menu -----
 
-    char op;
-    char op2;
-    char op3;
-    char groupName[64];
+    char menu_op1;
+    char menu_op2;
+    char menu_op3;
+    
+    while (1) { // Main Loop (Menu)
 
-    while (1) {
-        printf("Menu:\n1. Listar Usuários\n2. Listar Grupos\n3. Conversar\n4. Criar Grupo\n5. Solicitações de Conversa\n6. Sair\n\n");
-        scanf(" %c", &op); 
+        // Menu Display
 
-        if(op == '1'){
-            printf("---------- PROGRAM LOG ----------\n\n");
+        printf("\n");
 
-            // Monitor Users Status
-            char status_username[128]; // Create An Alternative Username To Avoid Conflict With statusHeartbeat
-            snprintf(status_username, sizeof(status_username), "%s_status", username);
+        printf("Menu:\n"
+               "1. Listar Usuários\n"
+               "2. Listar Grupos\n"
+               "3. Conversar\n"
+               "4. Criar Grupo\n"
+               "5. Solicitações\n"
+               "6. Sair\n\n");
+        printf("> ");
+        scanf(" %c", &menu_op1);
 
-            subscriberStatus(status_username, "USERS", &status_list);
-            
-            printf("\n---------- PROGRAM LOG ----------\n\n");
+        // Menu Options
 
-            printf("> Usuário : Status <\n\n");
-
-            listPrint(&status_list);
-
-            printf("\n---------- PROGRAM LOG ----------\n\n");
+        if (menu_op1 == '1') // Listar Usuários
+        { 
+            getUsers(username, &status_list);
         }
-        else if(op == '2'){
-            listGroups();
+        else if (menu_op1 == '2') // Listar Grupos
+        {
+            printf("WIP\n");
+            // listGroups();
         }
-        else if(op == '3'){
-            printf("Conversar com:\n1. Amigos\n2. Grupos\n");
-            scanf(" %c", &op2);
-            startConversation();
-        }
-        else if(op == '4'){
-            printf("Nome do Grupo: ");
-            scanf("%63s", groupName);
-            createGroup(groupName, username);
-        }
-        else if(op == '5'){
-            printf("1. Minhas solicitações de entrada em grupos:\n2. Enviar solicitação de entrada em grupos:\n3. Minhas solicitação de conversa\n4. Enviar solicitações de conversa\n");
-            scanf(" %c", &op3);
-            if(op3 == '1'){
-                printf("\n--- Verificando solicitações ---\n");
-                //checkGroupRequests(username); //problem
-                printf("--- Fim das solicitações ---\n\n");
+        else if (menu_op1 == '3') // Conversar
+        {
+            printf("Conversar Com:\n"
+                   "1. Amigos\n"
+                   "2. Grupos\n");
+            printf("> ");
+            scanf("%c", &menu_op2);
+
+            if (menu_op2 == '1') // Amigos
+            {
+                printf("WIP\n");
             }
-            else if(op3 == '2'){
+            else if (menu_op2 == '2') // Grupos
+            {
+                printf("WIP\n");
+            }
+            //startConversation();
+        }
+        else if (menu_op1 == '4') // Criar Grupo
+        {
+            printf("Nome do Grupo: ");
+            char groupName[64];
+            printf("> ");
+            scanf("%63s", groupName);
+            printf("WIP\n");
+            // createGroup(groupName, username);
+        }
+        else if (menu_op1 == '5') // Solicitações
+        {
+            printf("1. Minhas Solicitações De Entrada Em Grupos\n"
+                   "2. Enviar Solicitações De Entrada Em Grupos\n"
+                   "3. Minhas Solicitações De Conversa\n"
+                   "4. Enviar Solicitações De Conversa\n");
+            printf("> ");
+            scanf("%c", &menu_op3);
+
+            if (menu_op3 == '1') // Ver (Grupos)
+            {
+                printf("WIP\n");
+                //checkGroupRequests(username);
+            }
+            else if (menu_op3 == '2') // Enviar (Grupos)
+            {
                 printf("Nome do Grupo: ");
                 char groupName[64];
+                printf("> ");
                 scanf("%63s", groupName);
 
                 printf("Nome do líder do grupo: ");
                 char leader[64];
+                printf("> ");
                 scanf("%63s", leader);
 
-                requestJoinGroup(groupName, username, leader);
+                printf("WIP\n");
+                //requestJoinGroup(groupName, username, leader);
             }
-            else if(op3 == '3'){
-                printf("Funcionalidade ainda não implementada.\n");
+            else if (menu_op3 == '3') // Ver (Conversa)
+            {
+                printf("WIP\n");
+            } 
+            else if (menu_op3 == '4') // Enviar (Conversa)
+            {
+                printf("WIP\n");
             }
-            else if(op3 == '4'){
-                printf("Funcionalidade não implementada.\n");
-            }
-            else{
+            else
+            {
                 printf("Opção Inválida!\n");
             }
         }
-        else if(op == '6'){
-            printf("Saindo...\n");
+        else if(menu_op1 == '6') // Sair
+        {
+            printf("\nSaindo...\n");
             break;
         }
         else{
             printf("Opção Inválida!\n");
         }
     }
+
     printf("\n");
 
 
@@ -462,27 +488,32 @@ int main()
     //     return 1;
     // }
 
-   #if defined(_WIN32)
-			Sleep(10000);
+    // ----- Program Shutdown -----
+
+    // Shutdown Safety Delay
+
+    #if defined(_WIN32)
+			Sleep(DELAY_5_SEC_MS);
 		#else
-			usleep(10000000L);
+			usleep(DELAY_5_SEC_US);
 		#endif
 
     online = 0;
 
     // Wait For Threads Completion
+
     for (int i = 0; i < threads_running; i++)
     {
         pthread_join(threads[i], NULL);
     }
 
-    // Send Offline Status (USERS Topic)
-    snprintf(payload, sizeof(payload), "%s: Offline", username);
-    publisherStatus(username, "USERS", payload);
+    // Send Offline Status (USERS)
+
+    setStatus(username, "Offline");
 
     // End
 
-    printf("\n---------- PROGRAM LOG ----------\n\n");
+    printf("\n");
 
     printf("Até Mais, %s!\n\n", username);
 

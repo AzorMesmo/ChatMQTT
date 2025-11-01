@@ -1,4 +1,4 @@
-#ifndef PUBLISHER_H
+#ifndef PUBLISHER_H 
 #define PUBLISHER_H
 
 #ifdef __cplusplus
@@ -9,9 +9,11 @@ extern "C" {
 #define QOS_P         2
 #define TIMEOUT_P     10000L
 
-/* Publish user status (username, topic, payload).
-   Use const char* for string arguments. */
+/* Publish user status */
 int publisherStatus(const char* username_p, const char* topic_p, const char* payload_p);
+
+/* Publish group updates */
+int publisherGroups(const char* username_p, const char* topic_p, const char* payload_p);
 
 #ifdef __cplusplus
 }
