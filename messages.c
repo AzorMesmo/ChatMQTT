@@ -83,7 +83,7 @@ int listSearch(LinkedList* list, const char* message) {
 void listPrint(const LinkedList* list) {
     if (!list) return;
 
-    pthread_mutex_lock((pthread_mutex_t*)&list->lock); // cast away const for locking
+    pthread_mutex_lock((pthread_mutex_t*)&list->lock);
 
     Node* curr = list->head;
     while (curr) {
@@ -108,4 +108,75 @@ void listClear(LinkedList* list) {
     list->head = NULL;
 
     pthread_mutex_unlock(&list->lock);
+}
+
+// Specifc Print Functions
+
+void listPrintStatus(const LinkedList* list) {
+    if (!list) return;
+
+    pthread_mutex_lock((pthread_mutex_t*)&list->lock);
+
+    printf("\n");
+
+    Node* curr = list->head;
+    while (curr) {
+        char message[1024];
+        strncpy(message, curr->message, sizeof(message) - 1);
+        message[sizeof(message) - 1] = '\0';  // Ensure Null Termination
+
+        char* username = strtok(message, ":");  // Username
+        char* status = strtok(NULL, ":");       // Status
+
+        if (username && status) {
+            printf("%s | %s\n", username, status);
+        }
+
+        curr = curr->next;
+    }
+
+    pthread_mutex_unlock((pthread_mutex_t*)&list->lock);
+}
+
+void listPrintGroups(const LinkedList* list) {
+    if (!list) return;
+
+    pthread_mutex_lock((pthread_mutex_t*)&list->lock);
+
+    Node* curr = list->head;
+    while (curr) {
+        char message[1024];
+        strncpy(message, curr->message, sizeof(message) - 1);
+        message[sizeof(message) - 1] = '\0';  // Ensure Null Termination
+
+        char* groupname = strtok(message, ":"); // Group Name
+        char* leader = strtok(NULL, ":"); // Group Leader
+        char* members = strtok(NULL, ":"); // Group Members
+
+        printf("\n");
+
+        if (groupname) {
+            printf("%s\n", groupname);
+        }
+
+        if (leader) {
+            printf("Líder: %s\n", leader);
+        }
+
+        printf("Membros: ");
+        if (members) {
+            char *member = strtok(members, ";");
+            while (member) {
+                printf("%s", member);
+                member = strtok(NULL, ";");
+                if (member) printf(", ");
+            }
+        }
+
+        printf("\n");
+
+        curr = curr->next;
+    }
+
+    pthread_mutex_unlock((pthread_mutex_t*)&list->lock);
 }

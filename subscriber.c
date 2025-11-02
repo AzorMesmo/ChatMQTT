@@ -5,6 +5,7 @@
 #include <string.h>
 #include "MQTTAsync.h"
 #include "messages.h"
+#include "constants.h"
 
 #if !defined(_WIN32)
 #include <unistd.h>
@@ -27,7 +28,7 @@ typedef struct
     MQTTAsync client;
     char username_s[64];
     char topic_s[64];
-    int auto_disconnect;
+    int no_timeout;
     LinkedList* message_list;
 } Context_s;
 
@@ -47,7 +48,7 @@ void onDisconnectFailure_s(void* context_, MQTTAsync_failureData* response);
 void onDisconnect_s(void* context_, MQTTAsync_successData* response);
 void onSubscribe_s(void* context_, MQTTAsync_successData* response);
 void onSubscribeFailure_s(void* context_, MQTTAsync_failureData* response);
-int subscriberUsers(const char* username_s, const char* topic_s, LinkedList* status_list);
+int subscriberRetained(const char* username_s, const char* topic_s, LinkedList* status_list);
 void updateGroup(const char* payload);
 void processGroupRequest(const char* payload, const char* username);
 void processGroupResponse(const char* payload, const char* username);
@@ -96,19 +97,21 @@ int messageArrived_s(void *context_, char *topicName, int topicLen, MQTTAsync_me
     buf[len] = '\0';
 
     printf("\n               [LOG] Subscriber: Message arrived\n");
-    printf("                    [LOG] Topic: %s\n", topicName);
+    printf("                  [LOG]   Topic: %s\n", topicName);
     printf("                  [LOG] Message: %s\n\n", buf);
 
     // Message Type
 
     if (strstr(topicName, "USERS") != NULL) // Users
     { 
-        printf("               [LOG] Subscriber: User status update received. %s\n", buf);
+        printf("               [LOG] Subscriber: Users status update received. %s\n", buf);
         listInsert(context->message_list, buf);
     }
-    // else if (strcmp(topicName, "GROUPS") == 0) { // Groups 
-    //     updateGroup(buf);
-    // }
+    else if (strstr(topicName, "GROUPS") != NULL) // Groups 
+    {
+        printf("               [LOG] Subscriber: Groups status update received. %s\n", buf);
+        listInsert(context->message_list, buf);
+    }
     // else if (strstr(topicName, "_Control") != NULL) { // Control
     //     printf("Mensagem de controle recebida no tópico %s:\n", topicName);
     //     printf("Conteúdo: %s\n", buf);
@@ -166,7 +169,7 @@ void onConnect_s(void* context_, MQTTAsync_successData* response) // Connected S
 	int rc; // >main
 
     printf("               [LOG] Subscriber: Successful connection\n");
-    if (!context->auto_disconnect)
+    if (context->no_timeout)
     {
         printf("               [LOG] Subscriber: Subscribing to topic %s for client %s using QoS-%d\n"
                "               [LOG] Type '/quit' to quit\n", context->topic_s, context->username_s, QOS_S);
@@ -196,7 +199,7 @@ void onConnect_s(void* context_, MQTTAsync_successData* response) // Connected S
 
 // Main Functions
 
-int subscriberUsers(const char* username_s, const char* topic_s, LinkedList* status_list) // Subscribe To A Topic And Handle Messages
+int subscriberRetained(const char* username_s, const char* topic_s, LinkedList* status_list) // Subscribe To A Retained Topic (Not Mantain Connection)
 {
 	MQTTAsync client; // Client (Handler) | Connection To Broker
 	MQTTAsync_connectOptions conn_opts = MQTTAsync_connectOptions_initializer; // Connection Options (... = [Default Initializer Macro])
@@ -262,9 +265,9 @@ int subscriberUsers(const char* username_s, const char* topic_s, LinkedList* sta
 
     while (!subscribed && !finished_subscribe) {
         #if defined(_WIN32)
-            Sleep(100);
+            Sleep(DELAY_100_MS_MS);
         #else
-            usleep(10000L);
+            usleep(DELAY_100_MS_US);
         #endif
     }
 
@@ -321,19 +324,13 @@ int subscriberUsers(const char* username_s, const char* topic_s, LinkedList* sta
  	while (!disc_finished)
  	{
 		#if defined(_WIN32)
-			Sleep(100);
-		#else
-			usleep(10000L);
-		#endif
+            Sleep(DELAY_100_MS_MS);
+        #else
+            usleep(DELAY_100_MS_US);
+        #endif
  	}
 
     MQTTAsync_destroy(&client);
     free(context);
     return rc;
-}
-
-int subscriberGroups(const char* username_s, const char* topic_s, LinkedList* groups_list) // Subscribe To A Topic And Handle Messages
-{
-    // WIP
-    // Get Groups Information
 }

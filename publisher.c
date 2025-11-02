@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "MQTTAsync.h"
+#include "constants.h"
 
 #if !defined(_WIN32)
 #include <unistd.h>
@@ -46,7 +47,7 @@ void onSend_p(void* context_, MQTTAsync_successData* response);
 void onSendFailure_p(void* context_, MQTTAsync_failureData* response);
 void connectionLost_p(void *context_, char *cause);
 int messageArrived_p(void* context_, char* topicName, int topicLen, MQTTAsync_message* m);
-int publisherStatus(const char* username_p, const char* topic_p, const char* payload_p);
+int publisherRetained(const char* username_p, const char* topic_p, const char* payload_p);
 
 // Callbacks
 
@@ -181,9 +182,8 @@ int messageArrived_p(void* context_, char* topicName, int topicLen, MQTTAsync_me
 
 // Main Functions
 
-int publisherStatus(const char* username_p, const char* topic_p, const char* payload_p) // Publish User Status (Online / Offline)
+int publisherRetained(const char* username_p, const char* topic_p, const char* payload_p) // Publish Retained Messages
 {
-    MQTTAsync_setTraceLevel(MQTTASYNC_TRACE_PROTOCOL);
 	MQTTAsync client; // Client (Handler) | Connection To Broker
 	MQTTAsync_connectOptions conn_opts = MQTTAsync_connectOptions_initializer; // Connection Options (... = [Default Initializer Macro])
 	int rc; // Return Code For Function Calls
@@ -238,19 +238,14 @@ int publisherStatus(const char* username_p, const char* topic_p, const char* pay
 	printf("               [LOG] Publisher: Waiting for publication of '%s' on topic %s for client with ClientID: %s\n", payload_p, topic_p, username_p);
 	while (!finished_p)
 		#if defined(_WIN32)
-			Sleep(100);
-		#else
-			usleep(10000L);
-		#endif
+            Sleep(DELAY_100_MS_MS);
+        #else
+            usleep(DELAY_100_MS_US);
+        #endif
 
     // Exit
 
 	MQTTAsync_destroy(&client);
     free(context);
  	return rc;
-}
-
-int publisherGroups(const char* username_p, const char* topic_p, const char* payload_p) // Publish User Status (Online / Offline)
-{
-// WIP
 }

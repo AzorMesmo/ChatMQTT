@@ -1,4 +1,4 @@
-// Compilation Command: "gcc main.c publisher.c subscriber.c messages.c -o main -lpaho-mqtt3as -pthread"
+// Compilation Command: "gcc main.c publisher.c subscriber.c agent.c messages.c -o main -lpaho-mqtt3as -pthread"
 // Excecution Command: "./main"
 
 #include <stdio.h>
@@ -8,6 +8,8 @@
 #include "publisher.h"
 #include "subscriber.h"
 #include "messages.h"
+#include "constants.h"
+#include "agent.h"
 
 #if !defined(_WIN32)
 #include <unistd.h>
@@ -20,11 +22,6 @@
 #endif
 
 // Parameters
-
-#define DELAY_5_SEC_MS 5000
-#define DELAY_5_SEC_US 5000000L
-#define DELAY_10_SEC_MS 10000
-#define DELAY_10_SEC_US 10000000L
 
 volatile int online = 1;
 
@@ -44,35 +41,83 @@ typedef struct // Subscriber Arguments
 	LinkedList* message_list;
 } SubscribeArgs;
 
-typedef struct // Groups
-{ 
-    char name[64];
-    char leader[64];
-    char members[10][64]; // Exemplo: até 10 membros
-    int members_count;
-} Group;
+typedef struct // Agent Arguments
+{
+    char username[64];
+    char topic[128];
+    LinkedList* message_list;
+    volatile int* online;
+} AgentArgs;
 
-// Thread Function Wrappers
-
-// WIP
+// typedef struct // Groups
+// { 
+//     char name[64];
+//     char leader[64];
+//     char members[10][64]; // Exemplo: até 10 membros
+//     int members_count;
+// } Group;
 
 // Default Functions
 
-void setStatus(const char* username, const char* status) {
+// Get Users Status (Online / Offline)
+void getUsers(const char* username, LinkedList* status_list, int print_status)
+{ 
+    // print_status: 1 = Print, 0 = Don't Print
+    listClear(status_list);
+    subscriberRetained(username, "USERS/+", status_list);
+    if (print_status)
+    {
+        listPrintStatus(status_list);
+    }
+}
+
+// Set User Status (Online / Offline)
+void setStatus(const char* username, const char* status)
+{
+    // [USERNAME]:[STATUS]
     char topic[80];
     char payload[128];
 
     snprintf(topic, sizeof(topic), "USERS/%s", username);
     snprintf(payload, sizeof(payload), "%s:%s", username, status);
 
-    publisherStatus(username, topic, payload);
+    publisherRetained(username, topic, payload);
 }
 
-void getUsers(const char* username, LinkedList* status_list) {
-    listClear(status_list);
-    subscriberUsers(username, "USERS/+", status_list);
-    printf("\n= Usuário:Status =\n");
-    listPrint(status_list);
+// Get Groups (Name / Leader / Members)
+void getGroups(const char* username, LinkedList* groups_list, int print_groups)
+{
+    // print_groups: 1 = Print, 0 = Don't Print
+    listClear(groups_list);
+    subscriberRetained(username, "GROUPS/+", groups_list);
+    if (print_groups)
+    {
+        listPrintGroups(groups_list);
+    }
+}
+
+// Create Group (Name / Leader / Members)
+void setGroup(const char* groupname, const char* username)
+{
+    // [GROUP_NAME]:[LEADER]:[MEMBER1;MEMBER2;...]
+    char topic[80];
+    char payload[128];
+
+    snprintf(topic, sizeof(topic), "GROUPS/%s", groupname);
+    snprintf(payload, sizeof(payload), "%s:%s:%s;", groupname, username, username); // Leader Is The First Member
+
+    publisherRetained(username, topic, payload);
+}
+
+// Monitor Control Topic (User_Control) > Used With Threads
+void monitorControl(const char* username, LinkedList* control_list, volatile int* online)
+{
+    char control_username[72];
+    snprintf(control_username, sizeof(control_username), "%s_Control", username);
+
+    listClear(control_list);
+
+    agentControl(control_username, control_list, online);
 }
 
 // //atualiza grupo quando mensagem chega no tópico GROUPS
@@ -284,9 +329,19 @@ void getUsers(const char* username, LinkedList* status_list) {
 //             usleep(500000L); // 0,5s
 //         #endif
 //     }
-
 //     return NULL;
 // }
+
+// Thread Function Wrappers
+
+// monitorControl Thread Wrapper
+void* monitorControlThread(void* arg)
+{
+    AgentArgs* args = (AgentArgs*)arg;
+    monitorControl(args->username, args->message_list, args->online);
+    free(args);  // Free Arguments Structure
+    return NULL;
+}
 
 // Main Function
 
@@ -296,22 +351,36 @@ int main()
 
     // Welcome & Username Definition
 
-    char username[64];
-    printf("\nChatMQTT\n\nDigite Seu Nome De Usuário (Máximo 63 Caractéres): ");
-    scanf("%63s", username); // Limit Username Input To 63 Characters + '\0'
+    printf("\nChatMQTT\n");
 
-    if (strlen(username) == 0) {
-        printf("Nome de usuário inválido.\n");
-        return 1;
+    char username[64];
+    int username_undefined = 1;
+
+    while (username_undefined) // Validity Checker
+    {
+        printf("\nDigite Seu Nome De Usuário (Máximo 63 Caractéres): ");
+        scanf("%63s", username); // Limit Username Input To 63 Characters + '\0'
+
+        if (strlen(username) == 0 || strspn(username, " \t\n\r") == strlen(username)) { // No Username / Only Whitespaces
+            printf("Nome De Usuário Não Pode Estar Vazio!\n");
+            continue;
+        }
+
+        if (strpbrk(username, ":/+#;") != NULL) { // Username Contains Invalid Characters (':', '/', '+', '#', ';', '|')
+            printf("Nome De Usuário Contém Caractéres Inválidos! (':', '/', '+', '#', ';', '|')\n");
+            continue;
+        }
+
+        username_undefined = 0;
     }
 
     printf("\nBem Vindo, %s!\n\n", username);
 
     // Threads Parameters
 
-    pthread_t threads[0]; // Threads Handler
+    pthread_t threads[1]; // Threads Handler
     // Total Threads Number Is Based On The Maximum Possible Concurrent Threads:
-    // Messages Queue (WIP)
+    // Control Topic Publisher/Subscriber
     int threads_running = 0; // Threads Counter
 
     // Queues Initialization
@@ -319,8 +388,25 @@ int main()
     LinkedList status_list; // Status List
     listInit(&status_list);
 
-    // LinkedList group_list; // Groups List
-    // listInit(&group_list);
+    LinkedList groups_list; // Groups List
+    listInit(&groups_list);
+
+    LinkedList control_list; // Control List (Conversation/Group Requets)
+    listInit(&control_list);
+
+    // Control Topic Thread Inicialization
+
+    AgentArgs* control_args = malloc(sizeof(AgentArgs));
+    strncpy(control_args->username, username, sizeof(control_args->username) - 1);
+    control_args->message_list = &control_list;
+    control_args->online = &online;
+
+    if (pthread_create(&threads[threads_running], NULL, monitorControlThread, control_args) != 0) {
+        printf("Erro Ao Iniciar O Programa! (Control Topic Thread Inicialization Failed)\n");
+        free(control_args);
+        return EXIT_FAILURE;
+    }
+    threads_running++;
 
     // Send Online Status (USERS)
 
@@ -383,16 +469,20 @@ int main()
 
         // Menu Options
 
-        if (menu_op1 == '1') // Listar Usuários
+        // 1 - Listar Usuários
+        if (menu_op1 == '1')
         { 
-            getUsers(username, &status_list);
+            printf("\nBuscando Usuários...\n\n");
+            getUsers(username, &status_list, 1);
         }
-        else if (menu_op1 == '2') // Listar Grupos
+        // 2 - Listar Grupos
+        else if (menu_op1 == '2')
         {
-            printf("WIP\n");
-            // listGroups();
+            printf("\nBuscando Grupos...\n\n");
+            getGroups(username, &groups_list, 1);
         }
-        else if (menu_op1 == '3') // Conversar
+        // 3 - Conversar
+        else if (menu_op1 == '3')
         {
             printf("Conversar Com:\n"
                    "1. Amigos\n"
@@ -400,24 +490,45 @@ int main()
             printf("> ");
             scanf("%c", &menu_op2);
 
-            if (menu_op2 == '1') // Amigos
+            // 3.1 - Amigos
+            if (menu_op2 == '1') 
             {
                 printf("WIP\n");
             }
-            else if (menu_op2 == '2') // Grupos
+            // 3.2 - Grupos
+            else if (menu_op2 == '2')
             {
                 printf("WIP\n");
             }
             //startConversation();
         }
-        else if (menu_op1 == '4') // Criar Grupo
+        // 4 - Criar Grupo
+        else if (menu_op1 == '4')
         {
-            printf("Nome do Grupo: ");
-            char groupName[64];
-            printf("> ");
-            scanf("%63s", groupName);
-            printf("WIP\n");
-            // createGroup(groupName, username);
+            char groupname[64];
+            int groupname_undefined = 1;
+
+            while (groupname_undefined) // Validity Checker
+            {
+                printf("\nDigite O Nome Do Grupo (Máximo 63 Caractéres): ");
+                scanf("%63s", groupname); // Limit Groupname Input To 63 Characters + '\0'
+
+                if (strlen(groupname) == 0 || strspn(groupname, " \t\n\r") == strlen(groupname)) { // No Groupname / Only Whitespaces
+                    printf("Nome Do Grupo Não Pode Estar Vazio!\n");
+                    continue;
+                }
+
+                if (strpbrk(groupname, ":/+#;|") != NULL) { // Groupname Contains Invalid Characters (':', '/', '+', '#', ';', '|')
+                    printf("Nome Do Grupo Contém Caractéres Inválidos! (':', '/', '+', '#', ';', '|')\n");
+                    continue;
+                }
+
+                groupname_undefined = 0;
+            }
+
+            printf("\n");
+
+            setGroup(groupname, username);
         }
         else if (menu_op1 == '5') // Solicitações
         {
@@ -492,13 +603,13 @@ int main()
 
     // Shutdown Safety Delay
 
+    online = 0;
+
     #if defined(_WIN32)
 			Sleep(DELAY_5_SEC_MS);
 		#else
 			usleep(DELAY_5_SEC_US);
 		#endif
-
-    online = 0;
 
     // Wait For Threads Completion
 
