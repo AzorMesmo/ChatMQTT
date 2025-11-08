@@ -30,6 +30,7 @@ void listClear(LinkedList* list);
 /* Specific Print Operations */
 void listPrintStatus(const LinkedList* list);
 void listPrintGroups(const LinkedList* list);
+void listGetOnline(const LinkedList* list, LinkedList* onlineList, const char* username);
 
 #ifdef __cplusplus
 }

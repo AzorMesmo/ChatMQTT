@@ -5,10 +5,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
+#include "constants.h"
 #include "publisher.h"
 #include "subscriber.h"
 #include "messages.h"
-#include "constants.h"
 #include "agent.h"
 
 #if !defined(_WIN32)
@@ -81,7 +81,7 @@ void setStatus(const char* username, const char* status)
     snprintf(topic, sizeof(topic), "USERS/%s", username);
     snprintf(payload, sizeof(payload), "%s:%s", username, status);
 
-    publisherRetained(username, topic, payload);
+    publisher(username, topic, payload, 1);
 }
 
 // Get Groups (Name / Leader / Members)
@@ -106,7 +106,7 @@ void setGroup(const char* groupname, const char* username)
     snprintf(topic, sizeof(topic), "GROUPS/%s", groupname);
     snprintf(payload, sizeof(payload), "%s:%s:%s;", groupname, username, username); // Leader Is The First Member
 
-    publisherRetained(username, topic, payload);
+    publisher(username, topic, payload, 1);
 }
 
 // Monitor Control Topic (User_Control) > Used With Threads
@@ -361,7 +361,7 @@ int main()
         printf("\nDigite Seu Nome De Usuário (Máximo 63 Caractéres): ");
         scanf("%63s", username); // Limit Username Input To 63 Characters + '\0'
 
-        if (strlen(username) == 0 || strspn(username, " \t\n\r") == strlen(username)) { // No Username / Only Whitespaces
+        if (strlen(username) == 0 || strspn(username, " \t\n\r") == strlen(username)) { // No Username | Only Whitespaces
             printf("Nome De Usuário Não Pode Estar Vazio!\n");
             continue;
         }
@@ -374,13 +374,16 @@ int main()
         username_undefined = 0;
     }
 
-    printf("\nBem Vindo, %s!\n\n", username);
+    printf("\nBem Vindo, %s!\n", username);
+
+    if(LOG_ENABLED)
+        printf("\n");
 
     // Threads Parameters
 
     pthread_t threads[1]; // Threads Handler
     // Total Threads Number Is Based On The Maximum Possible Concurrent Threads:
-    // Control Topic Publisher/Subscriber
+    // - Control Topic Agent (Publisher/Subscriber)
     int threads_running = 0; // Threads Counter
 
     // Queues Initialization
@@ -393,6 +396,9 @@ int main()
 
     LinkedList control_list; // Control List (Conversation/Group Requets)
     listInit(&control_list);
+
+    LinkedList online_list; // Online Users List (Initialized On Use)
+    listInit(&online_list);
 
     // Control Topic Thread Inicialization
 
@@ -458,12 +464,12 @@ int main()
         printf("\n");
 
         printf("Menu:\n"
-               "1. Listar Usuários\n"
-               "2. Listar Grupos\n"
+               "1. Listar Usuários\n" // OK
+               "2. Listar Grupos\n"   // OK
                "3. Conversar\n"
-               "4. Criar Grupo\n"
+               "4. Criar Grupo\n"     // OK
                "5. Solicitações\n"
-               "6. Sair\n\n");
+               "6. Sair\n\n");        // OK
         printf("> ");
         scanf(" %c", &menu_op1);
 
@@ -472,23 +478,33 @@ int main()
         // 1 - Listar Usuários
         if (menu_op1 == '1')
         { 
-            printf("\nBuscando Usuários...\n\n");
+            printf("\nBuscando Usuários...\n");
+
+            if(LOG_ENABLED)
+                printf("\n");
+
             getUsers(username, &status_list, 1);
         }
+
         // 2 - Listar Grupos
         else if (menu_op1 == '2')
         {
-            printf("\nBuscando Grupos...\n\n");
+            printf("\nBuscando Grupos...\n");
+
+            if(LOG_ENABLED)
+                printf("\n");
+
             getGroups(username, &groups_list, 1);
         }
+
         // 3 - Conversar
         else if (menu_op1 == '3')
         {
-            printf("Conversar Com:\n"
-                   "1. Amigos\n"
-                   "2. Grupos\n");
+            printf("\nConversar Com:\n"
+                   "1. Usuário\n"
+                   "2. Grupo\n");
             printf("> ");
-            scanf("%c", &menu_op2);
+            scanf(" %c", &menu_op2);
 
             // 3.1 - Amigos
             if (menu_op2 == '1') 
@@ -502,6 +518,7 @@ int main()
             }
             //startConversation();
         }
+
         // 4 - Criar Grupo
         else if (menu_op1 == '4')
         {
@@ -530,43 +547,96 @@ int main()
 
             setGroup(groupname, username);
         }
-        else if (menu_op1 == '5') // Solicitações
-        {
-            printf("1. Minhas Solicitações De Entrada Em Grupos\n"
-                   "2. Enviar Solicitações De Entrada Em Grupos\n"
-                   "3. Minhas Solicitações De Conversa\n"
-                   "4. Enviar Solicitações De Conversa\n");
-            printf("> ");
-            scanf("%c", &menu_op3);
 
-            if (menu_op3 == '1') // Ver (Grupos)
+        // 5 - Solicitações
+        else if (menu_op1 == '5')
+        {
+            printf("\n1. Ver Solicitações Recebidas\n"
+                   "2. Solicitar Conversa Com Usuário\n"
+                   "3. Solicitar Conversa Com Grupo\n");
+            printf("> ");
+            scanf(" %c", &menu_op3);
+
+            // 5.1 - Ver Solicitações
+            if (menu_op3 == '1')
             {
                 printf("WIP\n");
                 //checkGroupRequests(username);
             }
-            else if (menu_op3 == '2') // Enviar (Grupos)
+            
+            // 5.2 - Solicitar (Usuário)
+            else if (menu_op3 == '2')
             {
-                printf("Nome do Grupo: ");
-                char groupName[64];
-                printf("> ");
-                scanf("%63s", groupName);
+                printf("\nBuscando Usuários Online...\n");
 
-                printf("Nome do líder do grupo: ");
-                char leader[64];
-                printf("> ");
-                scanf("%63s", leader);
+                if(LOG_ENABLED)
+                    printf("\n");
 
+                getUsers(username, &status_list, 0);
+
+                listGetOnline(&status_list, &online_list, username);
+
+                if (online_list.head == NULL) // No Online Users
+                {
+                    printf("Nenhum Usuário Online Encontrado!\n");
+                    continue;
+                }
+
+                listPrint(&online_list);
+
+                char conversation = 'N';
+                printf("Deseja Iniciar Uma Conversa? (S/N)\n");
+                printf("> ");
+                scanf(" %1s", &conversation);
+
+                if (conversation == 'N' || conversation == 'n')
+                {
+                    char target_user[64];
+                    int target_user_undefined = 1;
+
+                    while (target_user_undefined) // Validity Checker
+                    {
+                        printf("\nDigite O Nome Do Usuário Escolhido: ");
+                        scanf("%63s", target_user);
+
+                        if (strlen(target_user) == 0 || strspn(target_user, " \t\n\r") == strlen(target_user)) { // No Target User / Only Whitespaces
+                            printf("O Nome Do Usuário Não Pode Estar Vazio!\n");
+                            continue;
+                        }
+
+                        if (listSearch(&online_list, target_user) == 0) { // Target User Not Found In Online List
+                            printf("O Nome Do Usuário É Inválido!\n");
+                            continue;
+
+                        }
+
+                        target_user_undefined = 0;
+                    }
+                    
+
+                    printf("\n");
+
+                    char temp[128]; // Topic = [TARGET_USER]_Control
+                    char request[128];
+                    snprintf(temp, sizeof(temp), "%s_Control", target_user);
+                    snprintf(request, sizeof(request), "USER_REQUEST:%s", username);
+
+                    publisher(username, temp, request, 0);
+                }
+                else
+                {
+                    continue; 
+                }
+            }
+
+            // 5.3 - Solicitar (Grupo)
+            else if (menu_op3 == '3')
+            {
                 printf("WIP\n");
                 //requestJoinGroup(groupName, username, leader);
             }
-            else if (menu_op3 == '3') // Ver (Conversa)
-            {
-                printf("WIP\n");
-            } 
-            else if (menu_op3 == '4') // Enviar (Conversa)
-            {
-                printf("WIP\n");
-            }
+
+            // 5.X - Opção Inválida
             else
             {
                 printf("Opção Inválida!\n");
@@ -577,6 +647,8 @@ int main()
             printf("\nSaindo...\n");
             break;
         }
+
+        // X - Opção Inválida
         else{
             printf("Opção Inválida!\n");
         }

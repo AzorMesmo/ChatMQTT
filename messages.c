@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
+#include "constants.h"
 #include "messages.h"
 
 // Basic Functions
@@ -30,7 +31,7 @@ void listInsert(LinkedList* list, const char* message) {
 
     Node* new_node = malloc(sizeof(Node));
     if (!new_node) {
-        perror("               [LOG] List Node Malloc Failed");
+        perror("List Node Malloc Failed");
         pthread_mutex_unlock(&list->lock);
         return;
     }
@@ -174,6 +175,30 @@ void listPrintGroups(const LinkedList* list) {
         }
 
         printf("\n");
+
+        curr = curr->next;
+    }
+
+    pthread_mutex_unlock((pthread_mutex_t*)&list->lock);
+}
+
+void listGetOnline(const LinkedList* list, LinkedList* onlineList, const char* username) {
+    listClear(onlineList);
+
+    pthread_mutex_lock((pthread_mutex_t*)&list->lock);
+
+    Node* curr = list->head;
+    while (curr) {
+        char message[1024];
+        strncpy(message, curr->message, sizeof(message) - 1);
+        message[sizeof(message) - 1] = '\0';
+
+        char* user = strtok(message, ":");
+        char* status = strtok(NULL, ":");
+
+        if (user && status && strcmp(status, "Online") == 0 && strcmp(user, username) != 0) {
+            listInsert(onlineList, user);
+        }
 
         curr = curr->next;
     }

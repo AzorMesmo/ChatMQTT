@@ -4,8 +4,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include "MQTTAsync.h"
-#include "messages.h"
 #include "constants.h"
+#include "messages.h"
 
 #if !defined(_WIN32)
 #include <unistd.h>
@@ -16,10 +16,6 @@
 #if defined(_WRS_KERNEL)
 #include <OsWrapper.h>
 #endif
-
-// Parameters
-#define ADDRESS_S     "tcp://localhost:1883" // Default: "tcp://test.mosquitto.org:1883"
-#define QOS_S         2
 
 // Context
 
@@ -36,7 +32,7 @@ typedef struct
 
 int finished_disc = 0; // Disconnection Finished
 int is_subscribed = 0; // Subscription Successful
-int finished_sub = 0; // Program Finished
+int finished_agent = 0; // Program Finished
 
 // Function Prototypes
 
@@ -62,12 +58,15 @@ void connectionLost_a(void *context_, char *cause) // Connection Lost
 	Context_a* context = (Context_a*)context_;
 	MQTTAsync client = context->client; // Cast context Back To The Original Type (void* -> MQTTAsync) To Be Able To Use
 	MQTTAsync_connectOptions conn_opts = MQTTAsync_connectOptions_initializer; // Connection Options (... = [Default Initializer Macro])
-	int rc; // >main
+	int rc;
 
-	printf("\n               [LOG] Agent: Connection lost\n");
-	if (cause)
-		printf("     cause: %s\n", cause);
-	printf("               [LOG] Agent: Reconnecting\n");
+    if (LOG_ENABLED)
+    {
+        printf("\n               [LOG] AGENT: Connection lost\n");
+        if (cause)
+            printf("     cause: %s\n", cause);
+        printf("               [LOG] AGENT: Reconnecting\n");
+    }
 
 	// Connection Parameters
 	conn_opts.keepAliveInterval = 20;
@@ -79,12 +78,33 @@ void connectionLost_a(void *context_, char *cause) // Connection Lost
 	// Try To Connect Again
 	if ((rc = MQTTAsync_connect(client, &conn_opts)) != MQTTASYNC_SUCCESS)
 	{
-		printf("Agent: Failed to start connect, return code %d\n", rc);
-		finished_sub = 1;
+		printf("AGENT: Failed to start connect, return code %d\n", rc);
+		finished_agent = 1;
 	}
 }
 
-int messageArrived_a(void *context_, char *topicName, int topicLen, MQTTAsync_message *message) // Message Arrived
+void publishMessage(MQTTAsync client, const char* topic, const char* payload, int retained)
+{
+    MQTTAsync_responseOptions opts = MQTTAsync_responseOptions_initializer; // Response Options (... = [Default Initializer Macro])
+    MQTTAsync_message pubmsg = MQTTAsync_message_initializer; // Connection Options (... = [Default Initializer Macro])
+
+    pubmsg.payload = (void*)payload;
+    pubmsg.payloadlen = (int)strlen(payload);
+    pubmsg.qos = QOS;
+    pubmsg.retained = retained;
+
+    int rc;
+    if ((rc = MQTTAsync_sendMessage(client, topic, &pubmsg, &opts)) != MQTTASYNC_SUCCESS)
+    {
+        printf("               [LOG] AGENT: Failed to start sendMessage, return code %d\n", rc);
+    }
+    else if (LOG_ENABLED)
+    {
+        printf("               [LOG] AGENT: Published message \"%s\" to topic \"%s\"\n", payload, topic);
+    }
+}
+
+int messageArrived_a(void *context_, char *topic_name, int topic_len, MQTTAsync_message *message) // Message Arrived
 {
     Context_a* context = (Context_a*)context_;
 
@@ -96,59 +116,75 @@ int messageArrived_a(void *context_, char *topicName, int topicLen, MQTTAsync_me
     memcpy(buf, message->payload, len);
     buf[len] = '\0';
 
-    printf("\n               [LOG] Agent: Message arrived\n");
-    printf("                  [LOG]   Topic: %s\n", topicName);
-    printf("                  [LOG] Message: %s\n\n", buf);
+    if (LOG_ENABLED)
+    {
+    printf("\n               [LOG] AGENT: Message arrived\n");
+    printf("               [LOG]      Topic: %s\n", topic_name);
+    printf("               [LOG]    Message: %s\n\n", buf);
+    }
+
+    char reply_topic[2048];
 
     // Message Type
-
-    if (strstr(buf, "USER") != NULL) // USER_REQUEST
+    
+    if (strstr(buf, "USER_REQUEST") != NULL) // User Conversation Request | USER:[USERNAME]
     { 
-        printf("               [LOG] Agent: User request received. %s\n", buf);
-        listInsert(context->message_list, buf);
+        if (LOG_ENABLED)
+            printf("               [LOG] AGENT: User request received. %s\n", buf);
+
+        snprintf(reply_topic, sizeof(reply_topic), "%s/REQUESTS/%s", topic_name, buf); // [USER]_Control/REQUESTS/[REQUEST_BODY]
+
+        publishMessage(context->client, reply_topic, buf, 1);
+        // listInsert(context->message_list, buf);
     }
-    else if (strstr(buf, "GROUP") != NULL) // GROUP_REQUEST
+    else if (strstr(buf, "GROUP_REQUEST") != NULL) // Group Conversation Request | GROUP:[GROUPNAME];[USERNAME]
     {
-        printf("               [LOG] Agent: Group request received. %s\n", buf);
-        listInsert(context->message_list, buf);
+        if (LOG_ENABLED)
+            printf("               [LOG] AGENT: Group request received. %s\n", buf);
+        // listInsert(context->message_list, buf);
     }
 
 	// Memory Management
     MQTTAsync_freeMessage(&message);
-    MQTTAsync_free(topicName);
+    MQTTAsync_free(topic_name);
 
     return 1;
 }
 
 void onDisconnectFailure_a(void* context_, MQTTAsync_failureData* response) // Fails To Disconnect
 {
-    printf("               [LOG] Agent: Disconnect failed, rc %d\n", response->code);
+    if (LOG_ENABLED)
+        printf("               [LOG] AGENT: Disconnect failed, rc %d\n", response->code);
     finished_disc = 1;
 }
 
 void onDisconnect_a(void* context_, MQTTAsync_successData* response) // Disconnected Successfuly
 {
-    printf("               [LOG] Agent: Successful disconnection\n");
+    if (LOG_ENABLED)
+        printf("               [LOG] AGENT: Successful disconnection\n");
     finished_disc = 1;
 }
 
 void onSubscribe_a(void* context_, MQTTAsync_successData* response) // Subscribed Successfuly
 {
-    printf("               [LOG] Agent: Subscribe succeeded\n");
+    if (LOG_ENABLED)
+        printf("               [LOG] AGENT: Subscribe succeeded\n");
     is_subscribed = 1;
 }
 
 void onSubscribeFailure_a(void* context_, MQTTAsync_failureData* response) // Fails To Subscribe
 {
-    printf("               [LOG] Agent: Subscribe failed, rc %d\n", response->code);
-    finished_sub = 1;
+    if (LOG_ENABLED)
+        printf("               [LOG] AGENT: Subscribe failed, rc %d\n", response->code);
+    finished_agent = 1;
 }
 
 
 void onConnectFailure_a(void* context_, MQTTAsync_failureData* response) // Fails To Connect
 {
-    printf("               [LOG] Agent: Connect failed, rc %d\n", response->code);
-    finished_sub = 1;
+    if (LOG_ENABLED)
+        printf("               [LOG] AGENT: Connect failed, rc %d\n", response->code);
+    finished_agent = 1;
 }
 
 
@@ -159,9 +195,11 @@ void onConnect_a(void* context_, MQTTAsync_successData* response) // Connected S
 	MQTTAsync_responseOptions opts = MQTTAsync_responseOptions_initializer; // Response Options (... = [Default Initializer Macro])
 	int rc; // >main
 
-    printf("               [LOG] Agent: Successful connection\n");
-    printf("               [LOG] Agent: Subscribing to topic %s for client %s using QoS-%d\n"
-           "\n               [LOG] Will disconnect after all messages are received.\n\n", context->topic_a, context->username_a, QOS_S);
+    if (LOG_ENABLED)
+    {
+        printf("               [LOG] AGENT: Successful connection\n");
+        printf("               [LOG] AGENT: Subscribing to topic %s for client %s using QoS-%d\n", context->topic_a, context->username_a, QOS);
+    }
 
     // Connection Parameters
     opts.onSuccess = onSubscribe_a;
@@ -169,10 +207,11 @@ void onConnect_a(void* context_, MQTTAsync_successData* response) // Connected S
     opts.context = context;
 
     // Subscribe To Topic
-    if ((rc = MQTTAsync_subscribe(client, context->topic_a, QOS_S, &opts)) != MQTTASYNC_SUCCESS)
+    if ((rc = MQTTAsync_subscribe(client, context->topic_a, QOS, &opts)) != MQTTASYNC_SUCCESS)
     {
-        printf("               [LOG] Agent: Failed to start subscribe, return code %d\n", rc);
-        finished_sub = 1;
+        if (LOG_ENABLED)
+            printf("               [LOG] AGENT: Failed to start subscribe, return code %d\n", rc);
+        finished_agent = 1;
     }
 }
 
@@ -190,13 +229,14 @@ int agentControl(const char* username_a, LinkedList* control_list, volatile int*
 
 	finished_disc = 0;
 	is_subscribed = 0;
-	finished_sub = 0;
+	finished_agent = 0;
 
 	// Create Client
 
-    if ((rc = MQTTAsync_create(&client, ADDRESS_S, username_a, MQTTCLIENT_PERSISTENCE_NONE, NULL)) != MQTTASYNC_SUCCESS)
+    if ((rc = MQTTAsync_create(&client, ADDRESS, username_a, MQTTCLIENT_PERSISTENCE_NONE, NULL)) != MQTTASYNC_SUCCESS)
 	{
-        printf("               [LOG] Agent: Failed to create client, return code %d\n", rc);
+        if (LOG_ENABLED)
+            printf("               [LOG] AGENT: Failed to create client, return code %d\n", rc);
         return EXIT_FAILURE;
     }
 
@@ -217,7 +257,8 @@ int agentControl(const char* username_a, LinkedList* control_list, volatile int*
 
     if ((rc = MQTTAsync_setCallbacks(client, context, connectionLost_a, messageArrived_a, NULL)) != MQTTASYNC_SUCCESS)
 	{
-        printf("               [LOG] Agent: Failed to set callbacks, return code %d\n", rc);
+        if (LOG_ENABLED)
+            printf("               [LOG] AGENT: Failed to set callbacks, return code %d\n", rc);
         free(context);
         MQTTAsync_destroy(&client);
         return EXIT_FAILURE;
@@ -234,7 +275,8 @@ int agentControl(const char* username_a, LinkedList* control_list, volatile int*
 	// Connect To Broker
 
     if ((rc = MQTTAsync_connect(client, &conn_opts)) != MQTTASYNC_SUCCESS) {
-        printf("               [LOG] Agent: Failed to start connect, return code %d\n", rc);
+        if (LOG_ENABLED)
+            printf("               [LOG] AGENT: Failed to start connect, return code %d\n", rc);
         free(context);
         MQTTAsync_destroy(&client);
         return EXIT_FAILURE;
@@ -242,18 +284,12 @@ int agentControl(const char* username_a, LinkedList* control_list, volatile int*
 
 	// Wait For Subscription
 
-    while (!is_subscribed && !finished_sub) {
+    while (!is_subscribed && !finished_agent) {
         #if defined(_WIN32)
             Sleep(DELAY_100_MS_MS);
         #else
             usleep(DELAY_100_MS_US);
         #endif
-    }
-
-    if (finished_sub) {
-        MQTTAsync_destroy(&client);
-        free(context);
-        return EXIT_FAILURE;
     }
 
     while (*online) {
@@ -264,6 +300,14 @@ int agentControl(const char* username_a, LinkedList* control_list, volatile int*
         #endif
     }
 
+    if (finished_agent) {
+        if (LOG_ENABLED)
+            printf("               [LOG] AGENT: Client Destroyed\n");
+        MQTTAsync_destroy(&client);
+        free(context);
+        return EXIT_FAILURE;
+    }
+
 	// Disconnection Parameters
 
 	disc_opts.onSuccess = onDisconnect_a;
@@ -272,7 +316,8 @@ int agentControl(const char* username_a, LinkedList* control_list, volatile int*
 	// Disconnect To Broker
 
     if ((rc = MQTTAsync_disconnect(client, &disc_opts)) != MQTTASYNC_SUCCESS) {
-        printf("               [LOG] Agent: Failed to start disconnect, return code %d\n", rc);
+        if (LOG_ENABLED)
+            printf("               [LOG] AGENT: Failed to start disconnect, return code %d\n", rc);
         MQTTAsync_destroy(&client);
         free(context);
         return EXIT_FAILURE;

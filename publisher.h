@@ -11,7 +11,7 @@ extern "C" {
 #define TIMEOUT_P     10000L
 
 /* Core Functions */
-int publisherRetained(const char* username_p, const char* topic_p, const char* payload_p);
+int publisher(const char* username_p, const char* topic_p, const char* payload_p, int retained);
 
 /* Higher Level Functions */
 void setStatus(const char* username, const char* status);
