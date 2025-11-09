@@ -127,7 +127,7 @@ int messageArrived_a(void *context_, char *topic_name, int topic_len, MQTTAsync_
 
     // Message Type
     
-    if (strstr(buf, "USER_REQUEST") != NULL) // User Conversation Request | USER:[USERNAME]
+    if (strstr(buf, "USER_REQUEST") != NULL) // User Conversation Request | USER_REQUEST:[USERNAME]
     { 
         if (LOG_ENABLED)
             printf("               [LOG] AGENT: User request received. %s\n", buf);
@@ -137,10 +137,13 @@ int messageArrived_a(void *context_, char *topic_name, int topic_len, MQTTAsync_
         publishMessage(context->client, reply_topic, buf, 1);
         // listInsert(context->message_list, buf);
     }
-    else if (strstr(buf, "GROUP_REQUEST") != NULL) // Group Conversation Request | GROUP:[GROUPNAME];[USERNAME]
+    else if (strstr(buf, "GROUP_REQUEST") != NULL) // Group Conversation Request | GROUP_REQUEST:[GROUPNAME];[USERNAME]
     {
         if (LOG_ENABLED)
             printf("               [LOG] AGENT: Group request received. %s\n", buf);
+        snprintf(reply_topic, sizeof(reply_topic), "%s/REQUESTS/%s", topic_name, buf); // [USER]_Control/REQUESTS/[REQUEST_BODY]
+
+        publishMessage(context->client, reply_topic, buf, 1);
         // listInsert(context->message_list, buf);
     }
 

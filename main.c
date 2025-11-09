@@ -120,217 +120,19 @@ void monitorControl(const char* username, LinkedList* control_list, volatile int
     agentControl(control_username, control_list, online);
 }
 
-// //atualiza grupo quando mensagem chega no tópico GROUPS
-// void updateGroup(const char* payload, int groups_count) {
-//     char groupName[64], leaderName[64], membersStr[256];
-//     sscanf(payload, "GROUP:%63[^;];LEADER:%63[^;];MEMBERS:%255[^\n]", 
-//            groupName, leaderName, membersStr);
-
-//     //se o grupo já existe
-//     int i;
-//     for (i = 0; i < groups_count; i++) {
-//         if (strcmp(groups[i].name, groupName) == 0) break;
-//     }
-
-//     //cria novo grupo
-//     if (i == groups_count) {
-//         strncpy(groups[groups_count].name, groupName, 64);
-//         strncpy(groups[groups_count].leader, leaderName, 64);
-//         groups[groups_count].members_count = 0;
-//         groups_count++;
-//     }
-
-//     // atualiza membros
-//     char* token = strtok(membersStr, ",");
-//     groups[i].members_count = 0;
-//     while (token && groups[i].members_count < 10) {
-//         strncpy(groups[i].members[groups[i].members_count], token, 64);
-//         groups[i].members_count++;
-//         token = strtok(NULL, ",");
-//     }
-// }
-
-// void createGroup(const char* groupName, const char* leaderName, int groups_count) {
-//     char payload[1024];
-//     snprintf(payload, sizeof(payload), "GROUP:%s;LEADER:%s;MEMBERS:%s", groupName, leaderName, leaderName);
-
-//     updateGroup(payload, groups_count);
-
-//     publisherStatus(leaderName, "GROUPS", payload);
-//     printf("Grupo '%s' criado com líder '%s'\n", groupName, leaderName);
-// }
-
-// void listGroups() {
-//     printf("Listagem dos grupos cadastrados:\n\n");
-
-//     if (groups_count == 0) {
-//         printf("Nenhum grupo cadastrado.\n");
-//         return;
-//     }
-
-//     for (int i = 0; i < groups_count; i++) {
-//         printf("Grupo: %s\n", groups[i].name);
-//         printf("Líder: %s\n", groups[i].leader);
-//         printf("Membros: ");
-//         if (groups[i].members_count == 0) {
-//             printf("Nenhum membro\n");
-//         } else {
-//             for (int j = 0; j < groups[i].members_count; j++) {
-//                 printf("%s", groups[i].members[j]);
-//                 if (j < groups[i].members_count - 1) printf(", ");
-//             }
-//         }
-//         printf("\n\n");
-//     }
-// }
-
-// //SOLICITAÇÃO P ENTRAR EM GRUPOS
-// void requestJoinGroup(const char* groupName, const char* username, const char* leaderName) {
-//     char payload[256];
-//     snprintf(payload, sizeof(payload), "JOIN_REQUEST;GROUP:%s;USER:%s", groupName, username);
-
-//     char leader_topic[80];
-//     snprintf(leader_topic, sizeof(leader_topic), "%s_Control", leaderName);
-//     publisherStatus(username, leader_topic, payload); // publica no tópico de controle do líder
-//     printf("Solicitação enviada para '%s' para entrar no grupo '%s'\n", leaderName, groupName);
-// }
-
-// // processa solicitações recebidas
-// void processGroupRequest(const char* payload, const char* username) {
-//     char action[32], groupName[64], requester[64];
-//     if (sscanf(payload, "%31[^;];GROUP:%63[^;];USER:%63s", action, groupName, requester) != 3)
-//         return;
-
-//     if (strcmp(action, "JOIN_REQUEST") == 0) {
-//         printf("\nUsuário '%s' quer entrar no grupo '%s'. Aceitar? (s/n): ", requester, groupName);
-//         char resp;
-//         scanf(" %c", &resp);
-//         if (resp == 's' || resp == 'S') {
-//             // Aceitar: adiciona membro e publica atualização
-//             for (int i = 0; i < groups_count; i++) {
-//                 if (strcmp(groups[i].name, groupName) == 0) {
-//                     if (groups[i].members_count < 10) {
-//                         strncpy(groups[i].members[groups[i].members_count], requester, 64);
-//                         groups[i].members_count++;
-//                     }
-//                     break;
-//                 }
-//             }
-
-//             //atualiza tópico GROUPS
-//             char membersStr[256] = "";
-//             for (int i = 0; i < groups_count; i++) {
-//                 if (strcmp(groups[i].name, groupName) == 0) {
-//                     for (int j = 0; j < groups[i].members_count; j++) {
-//                         strcat(membersStr, groups[i].members[j]);
-//                         if (j < groups[i].members_count - 1) strcat(membersStr, ",");
-//                     }
-//                     break;
-//                 }
-//             }
-//             char updatePayload[512];
-//             snprintf(updatePayload, sizeof(updatePayload), "GROUP:%s;LEADER:%s;MEMBERS:%s", groupName, username, membersStr);
-//             publisherStatus(username, "GROUPS", updatePayload);
-
-//             //resposta ao solicitante
-//             char reply[128];
-//             snprintf(reply, sizeof(reply), "JOIN_ACCEPT;GROUP:%s;USER:%s", groupName, username);
-//             char requester_topic[80];
-//             snprintf(requester_topic, sizeof(requester_topic), "%s_Control", requester);
-//             publisherStatus(username, requester_topic, reply);
-
-//             printf("Solicitação aceita e grupo atualizado.\n");
-//         } else {
-//             char reply[128];
-//             snprintf(reply, sizeof(reply), "JOIN_REJECT;GROUP:%s;USER:%s", groupName, username);
-//             publisherStatus(username, requester, reply);
-//             printf("Solicitação rejeitada.\n");
-//         }
-//     }
-// }
-
-// // processa respostas de solicitação
-// void processGroupResponse(const char* payload, const char* username) {
-//     char action[32], groupName[64], responder[64];
-//     if (sscanf(payload, "%31[^;];GROUP:%63[^;];USER:%63s", action, groupName, responder) != 3)
-//         return;
-
-//     if (strcmp(action, "JOIN_ACCEPT") == 0) {
-//         printf("Sua solicitação para entrar no grupo '%s' foi aceita por '%s'\n", groupName, responder);
-//     } else if (strcmp(action, "JOIN_REJECT") == 0) {
-//         printf("Sua solicitação para entrar no grupo '%s' foi rejeitada por '%s'\n", groupName, responder);
-//     }
-// }
-
-// void checkGroupRequests(const char* username) {
-//     LinkedList temp_list;
-//     listInit(&temp_list);
-
-//     SubscribeArgs controlArgs;
-//     strncpy(controlArgs.username, username, 64);
-//     snprintf(controlArgs.topic, 64, "%s_Control", username);
-//     controlArgs.message_list = &temp_list;
-
-//     //chama subscriber apenas uma vez para ler mensagens
-//     subscriberUsers(controlArgs.username, controlArgs.topic, controlArgs.message_list);
-
-//     //processa cada mensagem recebida
-//     Node* node = temp_list.head;
-//     while (node) {
-//         processGroupRequest(node->message, username);
-//         processGroupResponse(node->message, username);
-//         node = node->next;
-//     }
-
-//     //limpa a lista temporária
-//     Node* n = temp_list.head;
-//     while (n) {
-//         Node* tmp = n;
-//         n = n->next;
-//         free(tmp); // não precisa free(tmp->message) porque é array interno
-//     }
-//     temp_list.head = NULL;
-// }
-
-// void startConversation() {
-//     printf("Funcionalidade de conversa ainda não implementada.\n");
-// }
-
-// void showRequestHistory() {
-//     printf("Histórico.\n");
-// }
-
-// void listClear(LinkedList* list) {
-//     Node* current = list->head;
-//     while (current) {
-//         Node* tmp = current;
-//         current = current->next;
-//         free(tmp); // se message for alocado dinamicamente, faça free(tmp->message);
-//     }
-//     list->head = NULL;
-// }
-
-// void* subscriberControlThread(void* arg) { //nao funciona, era pra ficar verificando solicitações
-//     SubscribeArgs* args = (SubscribeArgs*)arg;
-
-//     while (online) {
-//         Node* node = args->message_list->head;
-//         while (node) {
-//             processGroupRequest(node->message, args->username);
-//             processGroupResponse(node->message, args->username);
-//             node = node->next;
-//         }
-
-//         listClear(args->message_list); // limpa mensagens já processadas
-
-//         #if defined(_WIN32)
-//             Sleep(500);
-//         #else
-//             usleep(500000L); // 0,5s
-//         #endif
-//     }
-//     return NULL;
-// }
+// Get Requests
+void getRequests(const char* username, LinkedList* control_list, int print_control)
+{
+    // print_control: 1 = Print, 0 = Don't Print
+    listClear(control_list);
+    char temp[128];
+    snprintf(temp, sizeof(temp), "%s_Control/REQUESTS/+", username);
+    subscriberRetained(username, temp, control_list);
+    if (print_control)
+    {
+        listPrintRequests(control_list);
+    }
+}
 
 // Thread Function Wrappers
 
@@ -397,8 +199,11 @@ int main()
     LinkedList control_list; // Control List (Conversation/Group Requets)
     listInit(&control_list);
 
-    LinkedList online_list; // Online Users List (Initialized On Use)
-    listInit(&online_list);
+    LinkedList online_users_list; // Online Users List
+    listInit(&online_users_list);
+
+    LinkedList online_groups_list; // Groups With Online Leaders List
+    listInit(&online_groups_list);
 
     // Control Topic Thread Inicialization
 
@@ -417,31 +222,6 @@ int main()
     // Send Online Status (USERS)
 
     setStatus(username, "Online");
-
-    // Group groups[10];
-    // int groups_count = 0;
-    // char groupName[64];
-    
-
-    // #if defined(_WIN32)
-	// 		Sleep(2500);
-	// 	#else
-	// 		usleep(2500000L);
-	// 	#endif
-
-    // SubscribeArgs controlArgs;
-    // strncpy(controlArgs.username, username, 64);
-    // snprintf(controlArgs.topic, 64, "%s_Control", username); // X_control
-    // controlArgs.message_list = &group_list;
-
-    // SubscribeArgs groupsArgs;
-    // strncpy(groupsArgs.username, username, 64);
-    // strncpy(groupsArgs.topic, "GROUPS", 64);
-    // groupsArgs.message_list = &group_list;
-
-    // pthread_t subThreads[2];
-    // pthread_create(&subThreads[0], NULL, subscriberControlThread, &controlArgs);
-    // pthread_create(&subThreads[1], NULL, subscriberControlThread, &groupsArgs);
 
     // Startup Safety Delay
 
@@ -502,7 +282,7 @@ int main()
         {
             printf("\nConversar Com:\n"
                    "1. Usuário\n"
-                   "2. Grupo\n");
+                   "2. Grupo\n\n");
             printf("> ");
             scanf(" %c", &menu_op2);
 
@@ -553,14 +333,14 @@ int main()
         {
             printf("\n1. Ver Solicitações Recebidas\n"
                    "2. Solicitar Conversa Com Usuário\n"
-                   "3. Solicitar Conversa Com Grupo\n");
+                   "3. Solicitar Conversa Com Grupo\n\n");
             printf("> ");
             scanf(" %c", &menu_op3);
 
             // 5.1 - Ver Solicitações
             if (menu_op3 == '1')
             {
-                printf("WIP\n");
+                getRequests(username, &control_list, 1);
                 //checkGroupRequests(username);
             }
             
@@ -574,22 +354,22 @@ int main()
 
                 getUsers(username, &status_list, 0);
 
-                listGetOnline(&status_list, &online_list, username);
+                listGetOnlineUsers(&status_list, &online_users_list, username);
 
-                if (online_list.head == NULL) // No Online Users
+                if (online_users_list.head == NULL) // No Online Users
                 {
                     printf("Nenhum Usuário Online Encontrado!\n");
                     continue;
                 }
 
-                listPrint(&online_list);
+                listPrint(&online_users_list);
 
-                char conversation = 'N';
-                printf("Deseja Iniciar Uma Conversa? (S/N)\n");
+                char user_request = 'N';
+                printf("\nDeseja Solicitar Uma Conversa? (S/N)\n\n");
                 printf("> ");
-                scanf(" %1s", &conversation);
+                scanf(" %1s", &user_request);
 
-                if (conversation == 'N' || conversation == 'n')
+                if (user_request == 'S' || user_request == 's')
                 {
                     char target_user[64];
                     int target_user_undefined = 1;
@@ -604,7 +384,7 @@ int main()
                             continue;
                         }
 
-                        if (listSearch(&online_list, target_user) == 0) { // Target User Not Found In Online List
+                        if (listSearch(&online_users_list, target_user) == 0) { // Target User Not Found In Online List
                             printf("O Nome Do Usuário É Inválido!\n");
                             continue;
 
@@ -617,7 +397,7 @@ int main()
                     printf("\n");
 
                     char temp[128]; // Topic = [TARGET_USER]_Control
-                    char request[128];
+                    char request[128]; // USER_REQUEST:[USERNAME]
                     snprintf(temp, sizeof(temp), "%s_Control", target_user);
                     snprintf(request, sizeof(request), "USER_REQUEST:%s", username);
 
@@ -632,8 +412,74 @@ int main()
             // 5.3 - Solicitar (Grupo)
             else if (menu_op3 == '3')
             {
-                printf("WIP\n");
-                //requestJoinGroup(groupName, username, leader);
+                printf("\nBuscando Grupos Com Líderes Online...\n");
+
+                getUsers(username, &status_list, 0);
+                getGroups(username, &groups_list, 0);
+
+                if(LOG_ENABLED)
+                    printf("\n");
+
+                listGetOnlineUsers(&status_list, &online_users_list, username); // First Update Online Users
+                listGetOnlineGroups(&online_users_list, &groups_list, &online_groups_list, username);
+
+                if (online_groups_list.head == NULL) // No Online Users
+                {
+                    printf("Nenhum Líder Online Encontrado!\n");
+                    continue;
+                }
+
+                listPrintGroups(&online_groups_list);
+
+                char group_request = 'N';
+                printf("\nDeseja Solicitar A Entrada Em Um Grupo? (S/N)\n\n");
+                printf("> ");
+                scanf(" %1s", &group_request);
+
+                if (group_request == 'S' || group_request == 's')
+                {
+                    char target_group[64];
+                    char* target_leader;
+                    int target_group_undefined = 1;
+
+                    while (target_group_undefined) // Validity Checker
+                    {
+                        printf("\nDigite O Nome Do Grupo Escolhido: ");
+                        scanf("%63s", target_group);
+
+                        if (strlen(target_group) == 0 || strspn(target_group, " \t\n\r") == strlen(target_group)) { // No Target User / Only Whitespaces
+                            printf("O Nome Do Grupo Não Pode Estar Vazio!\n");
+                            continue;
+                        }
+
+                        if (listSearchFirstParameter(&online_groups_list, target_group) == 0) { // Target Group Not Found In Online List
+                            printf("O Nome Do Grupo É Inválido!\n");
+                            continue;
+
+                        }
+
+                        target_group_undefined = 0;
+                    }
+                    
+
+                    printf("\n");
+
+                    printf("Grupo Escolhido: %s", target_group);
+
+                    target_leader = listGetGroupLeader(&groups_list, target_group);
+                    printf("Líder: %s", target_leader);
+
+
+                    char temp[128]; // Topic = [TARGET_LEADER]_Control
+                    char request[256]; // GROUP_REQUEST:[GROUPNAME];[USERNAME]
+                    snprintf(temp, sizeof(temp), "%s_Control", target_leader);
+                    snprintf(request, sizeof(request), "GROUP_REQUEST:%s;%s", target_group, username);
+                    publisher(username, temp, request, 0);
+                }
+                else
+                {
+                    continue; 
+                }
             }
 
             // 5.X - Opção Inválida

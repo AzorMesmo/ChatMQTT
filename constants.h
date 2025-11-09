@@ -1,6 +1,9 @@
-// Parameters
+// MQTT Parameters
 #define ADDRESS     "tcp://localhost:1883" // Default: "tcp://test.mosquitto.org:1883"
 #define QOS 2
+
+// Parameters
+#define MAX_GROUP_MEMBERS 50
 
 // Time Delays
 #define DELAY_100_MS_MS 100

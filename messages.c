@@ -182,8 +182,45 @@ void listPrintGroups(const LinkedList* list) {
     pthread_mutex_unlock((pthread_mutex_t*)&list->lock);
 }
 
-void listGetOnline(const LinkedList* list, LinkedList* onlineList, const char* username) {
-    listClear(onlineList);
+void listPrintRequests(const LinkedList* list) {
+    if (!list) return;
+
+    pthread_mutex_lock((pthread_mutex_t*)&list->lock);
+
+    Node* curr = list->head;
+    while (curr) {
+        char message[1024];
+        strncpy(message, curr->message, sizeof(message) - 1);
+        message[sizeof(message) - 1] = '\0';  // Ensure Null Termination
+
+        char* request_type = strtok(message, ":"); // Request Type (USER_REQUEST | GROUP_REQUEST)
+        char* request_body = strtok(NULL, ":"); // User (Sender)
+
+        printf("\n");
+
+        if (request_type && strstr(request_type, "USER_REQUEST") != NULL)
+        {
+            // request_body = [USERNAME]
+            printf("Solicitação De Conversa Com: %s.", request_body);
+        }
+        if (request_type && strstr(request_type, "GROUP_REQUEST") != NULL)
+        {
+            // request_body = [GROUP];[USERNAME]
+            char* request_group = strtok(request_body, ";");
+            char* request_username = strtok(NULL, ";");
+            printf("Solicitação De Entrada No Grupo: %s. Pelo Usuário: %s.", request_group, request_username);
+        }
+
+        printf("\n");
+
+        curr = curr->next;
+    }
+
+    pthread_mutex_unlock((pthread_mutex_t*)&list->lock);
+}
+
+void listGetOnlineUsers(const LinkedList* list, LinkedList* online_list, const char* username) {
+    listClear(online_list);
 
     pthread_mutex_lock((pthread_mutex_t*)&list->lock);
 
@@ -197,11 +234,89 @@ void listGetOnline(const LinkedList* list, LinkedList* onlineList, const char* u
         char* status = strtok(NULL, ":");
 
         if (user && status && strcmp(status, "Online") == 0 && strcmp(user, username) != 0) {
-            listInsert(onlineList, user);
+            listInsert(online_list, user);
         }
 
         curr = curr->next;
     }
 
     pthread_mutex_unlock((pthread_mutex_t*)&list->lock);
+}
+
+void listGetOnlineGroups(LinkedList* online_users_list, const LinkedList* groups_list, LinkedList* online_groups_list, const char* username)
+{
+    listClear(online_groups_list);
+
+    pthread_mutex_lock((pthread_mutex_t*)&groups_list->lock);
+
+    Node* curr = groups_list->head;
+    while (curr) {
+        char message[1024];
+        strncpy(message, curr->message, sizeof(message) - 1);
+        message[sizeof(message) - 1] = '\0';
+
+        char* groupname = strtok(message, ":"); // Group Name
+        char* leader = strtok(NULL, ":"); // Group Leader
+        char* members = strtok(NULL, ":"); // Group Members
+
+        if (groupname && leader && members && strcmp(leader, username) != 0)
+        {
+            if (listSearch(online_users_list, leader) == 1)
+            {
+                listInsert(online_groups_list, curr->message);
+            }
+        }
+
+        curr = curr->next;
+    }
+
+    pthread_mutex_unlock((pthread_mutex_t*)&groups_list->lock);
+}
+
+char* listGetGroupLeader(const LinkedList* groups_list, const char* group)
+{
+    pthread_mutex_lock((pthread_mutex_t*)&groups_list->lock);
+
+    Node* curr = groups_list->head;
+    while (curr) {
+        char message[1024];
+        strncpy(message, curr->message, sizeof(message) - 1);
+        message[sizeof(message) - 1] = '\0';
+
+        char* groupname = strtok(message, ":"); // Group Name
+        char* leader = strtok(NULL, ":"); // Group Leader
+        char* members = strtok(NULL, ":"); // Group Members
+
+        if (groupname && leader && strcmp(groupname, group) == 0)
+        {
+            return leader;
+        }
+
+        curr = curr->next;
+    }
+
+    pthread_mutex_unlock((pthread_mutex_t*)&groups_list->lock);
+}
+
+int listSearchFirstParameter(LinkedList* list, const char* message) {
+    pthread_mutex_lock(&list->lock);
+
+    Node* curr = list->head;
+    int found = 0;
+    while (curr) {
+        char message[1024];
+        strncpy(message, curr->message, sizeof(message) - 1);
+        message[sizeof(message) - 1] = '\0';
+
+        char* groupname = strtok(message, ":"); // First Parameter
+
+        if (strcmp(groupname, message) == 0) {
+            found = 1;
+            break;
+        }
+        curr = curr->next;
+    }
+
+    pthread_mutex_unlock(&list->lock);
+    return found;
 }

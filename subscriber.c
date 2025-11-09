@@ -113,18 +113,21 @@ int messageArrived_s(void *context_, char *topicName, int topicLen, MQTTAsync_me
     else if (strstr(topicName, "GROUPS") != NULL) // Groups 
     {
         if (LOG_ENABLED)
-            printf("               [LOG] SUBSCRIBER: Groups status update received.\n");
+            printf("               [LOG] SUBSCRIBER: Groups update received.\n");
         listInsert(context->message_list, buf);
     }
-    // else if (strstr(topicName, "_Control") != NULL) { // Control
-    //     printf("Mensagem de controle recebida no tópico %s:\n", topicName);
-    //     printf("Conteúdo: %s\n", buf);
-
-    //     if (strstr(buf, "JOIN_REQUEST") != NULL) {
-    //         printf("Solicitação de entrada recebida: %s\n", buf);
-    //         listInsertStatus(context->message_list, buf);
-    //     }
-    // }
+    else if (strstr(topicName, "USER_REQUEST") != NULL) // User Requests
+    {
+        if (LOG_ENABLED)
+            printf("               [LOG] SUBSCRIBER: Requests update received.\n");
+        listInsert(context->message_list, buf);
+    }
+    else if (strstr(topicName, "GROUP_REQUEST") != NULL) // User Requests
+    {
+        if (LOG_ENABLED)
+            printf("               [LOG] SUBSCRIBER: Requests update received.\n");
+        listInsert(context->message_list, buf);
+    }
 
 	// Memory Management
     MQTTAsync_freeMessage(&message);

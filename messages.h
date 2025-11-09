@@ -30,7 +30,11 @@ void listClear(LinkedList* list);
 /* Specific Print Operations */
 void listPrintStatus(const LinkedList* list);
 void listPrintGroups(const LinkedList* list);
-void listGetOnline(const LinkedList* list, LinkedList* onlineList, const char* username);
+void listPrintRequests(const LinkedList* list);
+void listGetOnlineUsers(const LinkedList* list, LinkedList* onlineList, const char* username);
+void listGetOnlineGroups(LinkedList* online_users_list, const LinkedList* groups_list, LinkedList* online_list, const char* username);
+char* listGetGroupLeader(const LinkedList* groups_list, const char* group);
+int listSearchFirstParameter(LinkedList* list, const char* message);
 
 #ifdef __cplusplus
 }
