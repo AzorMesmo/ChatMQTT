@@ -109,6 +109,54 @@ void setGroup(const char* groupname, const char* username)
     publisher(username, topic, payload, 1);
 }
 
+// adiciona novo membro no grupo
+void updateGroupMembers(const char* groupname, const char* leader, const char* new_member) {
+    char topic[80];
+    char payload[2048];
+    char membros_buffer[1024] = "";
+
+    // le grupos atuais 
+    LinkedList groups_list;
+    listInit(&groups_list);
+    subscriberRetained(leader, "GROUPS/+", &groups_list);//retida
+
+    // percorre grupos até encontrar o grupo alvo
+    Node* node = groups_list.head;
+    int group_found = 0;
+    while (node != NULL) {
+        if (strncmp(node->message, groupname, strlen(groupname)) == 0) {
+            // formato do payload é: "grupo:lider:m1;m2;..."
+            char* membros = strstr(node->message, ":");
+            if (membros) {
+                membros = strstr(membros + 1, ":"); // pula nome e líder
+                if (membros) {
+                    membros++; // pula ':'
+                    strncpy(membros_buffer, membros, sizeof(membros_buffer) - 1);
+                    membros_buffer[strcspn(membros_buffer, "\n")] = '\0'; // remove quebra de linha
+                }
+            }
+            group_found = 1;
+            break;
+        }
+        node = node->next;
+    }
+
+    // se o membro ainda não existe - adiciona
+    if (strstr(membros_buffer, new_member) == NULL) {
+        strncat(membros_buffer, new_member, sizeof(membros_buffer) - strlen(membros_buffer) - 1);
+        strncat(membros_buffer, ";", sizeof(membros_buffer) - strlen(membros_buffer) - 1);
+    }
+
+    //  topico e payload atualizados
+    snprintf(topic, sizeof(topic), "GROUPS/%s", groupname);
+    snprintf(payload, sizeof(payload), "%s:%s:%s", groupname, leader, membros_buffer);
+
+    // publica atualização como retained 
+    publisher(leader, topic, payload, 1);
+
+    listDestroy(&groups_list);
+}
+
 // Monitor Control Topic (User_Control) > Used With Threads
 void monitorControl(const char* username, LinkedList* control_list, volatile int* online)
 {
@@ -331,7 +379,7 @@ int main()
         // 5 - Solicitações
         else if (menu_op1 == '5')
         {
-            printf("\n1. Ver Solicitações Recebidas\n"
+            printf("\n1. Solicitações Recebidas\n"
                    "2. Solicitar Conversa Com Usuário\n"
                    "3. Solicitar Conversa Com Grupo\n\n");
             printf("> ");
@@ -340,10 +388,185 @@ int main()
             // 5.1 - Ver Solicitações
             if (menu_op3 == '1')
             {
+                printf("\nBuscando Solicitações Recebidas...\n");
+
+                if(LOG_ENABLED)
+                    printf("\n");
+
                 getRequests(username, &control_list, 1);
-                //checkGroupRequests(username);
-            }
+
+                if (control_list.head == NULL)
+                {
+                    printf("\nNenhuma Solicitação Recebida!\n");
+                    continue;
+                }
+
+                char response;
+                printf("\nDeseja Responder Alguma Solicitação? (S/N)\n\n");
+                printf("> ");
+                scanf(" %c", &response);
+                
+                if (response != 'S' && response != 's')
+                    continue;
+
+                printf("\nSelecione o tipo de solicitação:\n"
+                    "1. Usuário\n"
+                    "2. Grupo\n\n");
+                printf("> ");
+
+                char type;
+                scanf(" %c", &type);
+
+                if (type == '1') // Usuário
+                {
+                    char target_user[64];
+                    int target_user_undefined = 1;
+
+                    while (target_user_undefined)
+                    {
+                        printf("\nDigite o Nome do Usuário: ");
+                        scanf("%63s", target_user);
+
+                        if (strlen(target_user) == 0 || strspn(target_user, " \t\n\r") == strlen(target_user))
+                        {
+                            printf("O Nome do Usuário Não Pode Estar Vazio!\n");
+                            continue;
+                        }
+
+                        //verifica se o usuario realmente mandou solicitação:
+                        int found = 0;
+                        Node* node = control_list.head;
+
+                        while (node) {
+                            char* msg = node->message;
+
+                            // se começar com "USER_REQUEST:", pula os 13 primeiros caracteres pra pegar só o nome
+                            if (strncmp(msg, "USER_REQUEST:", 13) == 0) {
+                                msg += 13;
+                            }
+                            if (strcmp(msg, target_user) == 0) {
+                                found = 1;
+                                break;
+                            }
+
+                            node = node->next;
+                        }
+                        if (!found) {
+                            printf("A Solicitação Não Existe!\n");
+                            continue;
+                        }
+
+                        target_user_undefined = 0;
+                    }   
+
+                    char accept;
+                    printf("\nDeseja Aceitar a Solicitação de %s? (S/N)\n\n", target_user);
+                    printf("> ");
+                    scanf(" %c", &accept);
+
+                    char topic[256];
+                    char payload[256];
+
+                    snprintf(topic, sizeof(topic), "%s_Control", target_user); 
+
+                    if (accept == 'S' || accept == 's')
+                    {
+                        snprintf(payload, sizeof(payload), "REQUEST_ACCEPTED:%s", username);
+                        printf("\nSolicitação de %s aceita.\n", target_user);
+                    }
+                    else
+                    {
+                        snprintf(payload, sizeof(payload), "REQUEST_REJECTED:%s", username);
+                        printf("\nSolicitação de %s rejeitada.\n", target_user);
+                    }
+
+                    publisher(username, topic, payload, 0);  //envia resposta da solicitação 
+
+                    //apagar solicitação
+                    snprintf(topic, sizeof(topic), "%s_Control/REQUESTS/USER_REQUEST:%s", username, target_user);
+                    publisher(username, topic, "", 1);
+                }
+                else if (type == '2') // Grupo
+                {
+                    char target_group[128];
+                    char target_user[128];
+                    int target_group_undefined = 1;
+
+                    while (target_group_undefined)
+                    {
+                        printf("\nDigite o Nome do Grupo Solicitado: ");
+                        scanf("%63s", target_group);
+                        
+                        printf("\nDigite o Nome do Usuário Solicitante: ");
+                        scanf("%63s", target_user);
+
+                        if (strlen(target_group) == 0 || strspn(target_group, " \t\n\r") == strlen(target_group))
+                        {
+                            printf("O Nome do Grupo Não Pode Estar Vazio!\n");
+                            continue;
+                        }
+
+                        //verifica se solicitação existe:
+                        int found = 0;
+                        Node* node = control_list.head;
+
+                        // monta a string completa pra comparar
+                        char request_pattern[512];
+                        //padrão: "GROUP_REQUEST:groupName;solicitanteName"
+                        snprintf(request_pattern, sizeof(request_pattern), "GROUP_REQUEST:%s;%s", target_group, target_user);
+
+                        while (node) {
+                            if (strcmp(node->message, request_pattern) == 0) {
+                                found = 1;
+                                break;
+                            }
+                            node = node->next;
+                        }
+
+                        if (!found) {
+                            printf("Solicitação de grupo inválida!\n");
+                            continue;
+                        }
+
+
+                        target_group_undefined = 0;
+                    }
+
+
+                    char accept;
+                    printf("\nDeseja Aceitar a Entrada de %s No Grupo %s? (S/N)\n\n", target_user, target_group);
+                    printf("> ");
+                    scanf(" %c", &accept);
+
+                    char topic[512];
+                    char payload[256];
+
+                    snprintf(topic, sizeof(topic), "%s_Control", target_user);
             
+                    if (accept == 'S' || accept == 's')
+                    {
+                        snprintf(payload, sizeof(payload), "GROUP_ACCEPTED:%s;%s", target_group, username);
+                        updateGroupMembers(target_group, username, target_user);
+                        printf("\nSolicitação de %s para entrar no grupo %s aceita.\n", target_user, target_group);
+                    }
+                    else
+                    {
+                        snprintf(payload, sizeof(payload), "GROUP_REJECTED:%s;%s", target_group, username);
+                        printf("\nSolicitação de %s para entrar no grupo %s rejeitada.\n", target_user, target_group);
+                    }
+
+                    publisher(username, topic, payload, 0); //envia resposta da solicitação 
+
+                    // apagar solicitação de grupo
+                    snprintf(topic, sizeof(topic), "%s_Control/REQUESTS/GROUP_REQUEST:%s;%s", username, target_group, target_user);
+                    publisher(username, topic, "", 1);
+
+                }
+                else {
+                    printf("\nOpção Inválida!\n");
+                }
+            }
+        
             // 5.2 - Solicitar (Usuário)
             else if (menu_op3 == '2')
             {
@@ -371,7 +594,7 @@ int main()
 
                 if (user_request == 'S' || user_request == 's')
                 {
-                    char target_user[64];
+                    char target_user[128];
                     int target_user_undefined = 1;
 
                     while (target_user_undefined) // Validity Checker
@@ -396,7 +619,7 @@ int main()
 
                     printf("\n");
 
-                    char temp[128]; // Topic = [TARGET_USER]_Control
+                    char temp[256]; // Topic = [TARGET_USER]_Control
                     char request[128]; // USER_REQUEST:[USERNAME]
                     snprintf(temp, sizeof(temp), "%s_Control", target_user);
                     snprintf(request, sizeof(request), "USER_REQUEST:%s", username);
@@ -438,7 +661,7 @@ int main()
 
                 if (group_request == 'S' || group_request == 's')
                 {
-                    char target_group[64];
+                    char target_group[128];
                     char* target_leader;
                     int target_group_undefined = 1;
 
