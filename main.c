@@ -253,6 +253,12 @@ int main()
     LinkedList online_groups_list; // Groups With Online Leaders List
     listInit(&online_groups_list);
 
+    LinkedList received_history; // historico de sol. recebidas
+    listInit(&received_history);
+
+    LinkedList sent_history; // hist. de sol. enviadas
+    listInit(&sent_history);
+
     // Control Topic Thread Inicialization
 
     AgentArgs* control_args = malloc(sizeof(AgentArgs));
@@ -381,7 +387,8 @@ int main()
         {
             printf("\n1. Solicitações Recebidas\n"
                    "2. Solicitar Conversa Com Usuário\n"
-                   "3. Solicitar Conversa Com Grupo\n\n");
+                   "3. Solicitar Conversa Com Grupo\n"
+                   "4. Histórico de solicitações\n\n");
             printf("> ");
             scanf(" %c", &menu_op3);
 
@@ -482,6 +489,14 @@ int main()
 
                     publisher(username, topic, payload, 0);  //envia resposta da solicitação 
 
+                    //add no histórico:
+                    char hist_msg[256];
+                    snprintf(hist_msg, sizeof(hist_msg), "USER:%s;%s;%s", 
+                            target_user, 
+                            (accept=='S' || accept=='s') ? "ACCEPTED" : "REJECTED", 
+                            username);
+                    listInsert(&received_history, hist_msg);
+
                     //apagar solicitação
                     snprintf(topic, sizeof(topic), "%s_Control/REQUESTS/USER_REQUEST:%s", username, target_user);
                     publisher(username, topic, "", 1);
@@ -557,6 +572,14 @@ int main()
 
                     publisher(username, topic, payload, 0); //envia resposta da solicitação 
 
+                    //add solicitação no histórico:
+                    char hist_msg[256];
+                    snprintf(hist_msg, sizeof(hist_msg), "GROUP:%s;%s;%s", 
+                            target_group, 
+                            (accept=='S' || accept=='s') ? "ACCEPTED" : "REJECTED", 
+                            target_user);
+                    listInsert(&received_history, hist_msg);
+
                     // apagar solicitação de grupo
                     snprintf(topic, sizeof(topic), "%s_Control/REQUESTS/GROUP_REQUEST:%s;%s", username, target_group, target_user);
                     publisher(username, topic, "", 1);
@@ -625,6 +648,11 @@ int main()
                     snprintf(request, sizeof(request), "USER_REQUEST:%s", username);
 
                     publisher(username, temp, request, 0);
+
+                    //add no hist:
+                    char hist_msg[256];
+                    snprintf(hist_msg, sizeof(hist_msg), "USER:%s;SENT;%s", target_user, username);
+                    listInsert(&sent_history, hist_msg);
                 }
                 else
                 {
@@ -697,11 +725,37 @@ int main()
                     char request[256]; // GROUP_REQUEST:[GROUPNAME];[USERNAME]
                     snprintf(temp, sizeof(temp), "%s_Control", target_leader);
                     snprintf(request, sizeof(request), "GROUP_REQUEST:%s;%s", target_group, username);
+
                     publisher(username, temp, request, 0);
+
+                    //add no hist:
+                    char hist_msg[256];
+                    snprintf(hist_msg, sizeof(hist_msg), "GROUP:%s;SENT;%s", target_group, username);
+                    listInsert(&sent_history, hist_msg);
                 }
                 else
                 {
                     continue; 
+                }
+            }
+            // 5.2 - Solicitar (Usuário)
+            else if (menu_op3 == '4')
+            {
+                char hist_choice;
+                printf("\nHistórico de Solicitações:\n"
+                    "1. Recebidas\n"
+                    "2. Enviadas\n\n");
+                printf("> ");
+                scanf(" %c", &hist_choice);
+
+                if (hist_choice == '1') {
+                    printf("\n--- Solicitações Recebidas ---\n");
+                    listPrint(&received_history);
+                } else if (hist_choice == '2') {
+                    printf("\n--- Solicitações Enviadas ---\n");
+                    listPrint(&sent_history);
+                } else {
+                    printf("Opção inválida!\n");
                 }
             }
 
