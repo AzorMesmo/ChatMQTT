@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
+#include <ctype.h>
 #include "constants.h"
 #include "messages.h"
 
@@ -111,6 +112,12 @@ void listClear(LinkedList* list) {
     pthread_mutex_unlock(&list->lock);
 }
 
+void toUppercase(char *str)
+{
+    for (int i = 0; str[i] != '\0'; i++)
+        str[i] = toupper((unsigned char)str[i]);
+}
+
 // Specifc Print Functions
 
 void listPrintStatus(const LinkedList* list) {
@@ -201,14 +208,59 @@ void listPrintRequests(const LinkedList* list) {
         if (request_type && strstr(request_type, "USER_REQUEST") != NULL)
         {
             // request_body = [USERNAME]
-            printf("Solicitação De Conversa Com: %s.", request_body);
+            printf("- Solicitação De Conversa Com: %s.", request_body);
         }
         if (request_type && strstr(request_type, "GROUP_REQUEST") != NULL)
         {
             // request_body = [GROUP];[USERNAME]
             char* request_group = strtok(request_body, ";");
             char* request_username = strtok(NULL, ";");
-            printf("Solicitação De Entrada No Grupo: %s. Pelo Usuário: %s.", request_group, request_username);
+            printf("- Solicitação De Entrada No Grupo: %s. Pelo Usuário: %s.", request_group, request_username);
+        }
+
+        printf("\n");
+
+        curr = curr->next;
+    }
+
+    pthread_mutex_unlock((pthread_mutex_t*)&list->lock);
+}
+
+void listPrintHistory(const LinkedList* list, const char *username) {
+    if (!list) return;
+
+    pthread_mutex_lock((pthread_mutex_t*)&list->lock);
+
+    Node* curr = list->head;
+    while (curr) {
+
+        char message[1024];
+        strncpy(message, curr->message, sizeof(message) - 1);
+        message[sizeof(message) - 1] = '\0';  // Ensure Null Termination
+
+        char* request_type = strtok(message, ":"); // (constants.h)
+        char* request_body = strtok(NULL, ":"); // (constants.h)
+
+        printf("\n");
+
+        if (request_type && strstr(request_type, "GROUP_CREATED") != NULL)
+        {
+            // request_body = [GROUPNAME];[TOPIC]
+            char* request_group = strtok(request_body, ";");
+            char* request_topic = strtok(NULL, ";");
+            printf("- Você Criou O Grupo: %s.", request_group);
+        }
+        if (request_type && strstr(request_type, "USER_REQUEST_SENT") != NULL)
+        {
+            // request_body = [USERNAME]
+            printf("- Você Enviou Uma Solicitação De Conversa Para: %s.", request_body);
+        }
+        if (request_type && strstr(request_type, "GROUP_REQUEST_SENT") != NULL)
+        {
+            // request_body = [GROUPNAME];[USERNAME]
+            char* request_group = strtok(request_body, ";");
+            char* request_username = strtok(NULL, ";");
+            printf("- Você Enviou Uma Solicitação De Entrada No Grupo: %s. Possuindo O Líder: %s.", request_group, request_username);
         }
 
         printf("\n");

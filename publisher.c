@@ -1,3 +1,5 @@
+// Clear Topic Mannualy: mosquitto_pub -t [TOPIC] -r -n
+
 // Imports
 
 #include <stdio.h>
@@ -41,7 +43,7 @@ void onSend_p(void* context_, MQTTAsync_successData* response);
 void onSendFailure_p(void* context_, MQTTAsync_failureData* response);
 void connectionLost_p(void *context_, char *cause);
 int messageArrived_p(void* context_, char* topicName, int topicLen, MQTTAsync_message* m);
-int publisherRetained(const char* username_p, const char* topic_p, const char* payload_p);
+int publisher(const char* username_p, const char* topic_p, const char* payload_p, int retained);
 
 // Callbacks
 

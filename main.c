@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
+#include <time.h>
 #include "constants.h"
 #include "publisher.h"
 #include "subscriber.h"
@@ -100,13 +101,67 @@ void getGroups(const char* username, LinkedList* groups_list, int print_groups)
 void setGroup(const char* groupname, const char* username)
 {
     // [GROUP_NAME]:[LEADER]:[MEMBER1;MEMBER2;...]
-    char topic[80];
-    char payload[128];
+    char topic[512];
+    char payload[256];
 
+    // Publish On Groups
     snprintf(topic, sizeof(topic), "GROUPS/%s", groupname);
     snprintf(payload, sizeof(payload), "%s:%s:%s;", groupname, username, username); // Leader Is The First Member
 
     publisher(username, topic, payload, 1);
+
+    char timestamp[100];
+    time_t now = time(NULL);
+    struct tm *t = localtime(&now);
+    strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%S", t);
+
+    // Publish On History
+    snprintf(payload, sizeof(payload), "GROUP_CREATED:%s;%s|%s", groupname, groupname, timestamp);
+    snprintf(topic, sizeof(topic), "%s_Control/HISTORY/%s", username, payload);
+
+    publisher(username, topic, payload, 1);
+}
+
+// Request User Coversation
+void requestUser(const char* username, const char* user)
+{
+    char topic[512]; // Topic = [TARGET_USER]_Control
+    char my_topic[512]; // Topic = [USERNAME]_Control/HISTORY/[BODY]
+    char request[256]; // USER_REQUEST:[USERNAME]
+    char history[256]; // USER_REQUEST_SENT:[TARGET_USER]
+
+    // Request
+    snprintf(topic, sizeof(topic), "%s_Control", user);
+    snprintf(request, sizeof(request), "USER_REQUEST:%s", username);
+
+    publisher(username, topic, request, 0);
+
+    // History
+    snprintf(history, sizeof(history), "USER_REQUEST_SENT:%s", user);
+    snprintf(my_topic, sizeof(my_topic), "%s_Control/HISTORY/%s", username, history);
+
+    publisher(username, my_topic, history, 1);
+}
+
+// Request User Coversation
+void requestGroup(const char* username, const char* leader,  const char* group)
+{
+    char topic[512]; // Topic = [TARGET_LEADER]_Control
+    char my_topic[512]; // Topic = [USERNAME]_Control/HISTORY/[BODY]
+    char request[256]; // GROUP_REQUEST:[GROUPNAME];[USERNAME]
+    char history[256]; // GROUP_REQUEST_SENT:[GROUPNAME];[LEADER]
+
+    // Request
+    snprintf(topic, sizeof(topic), "%s_Control", leader);
+    snprintf(request, sizeof(request), "GROUP_REQUEST:%s;%s", group, username);
+    
+    publisher(username, topic, request, 0);
+
+    // History
+    snprintf(history, sizeof(history), "GROUP_REQUEST_SENT:%s;%s", group, leader);
+    snprintf(my_topic, sizeof(my_topic), "%s_Control/HISTORY/%s", username, history);
+
+    publisher(username, my_topic, history, 1);
 }
 
 // Monitor Control Topic (User_Control) > Used With Threads
@@ -121,16 +176,30 @@ void monitorControl(const char* username, LinkedList* control_list, volatile int
 }
 
 // Get Requests
-void getRequests(const char* username, LinkedList* control_list, int print_control)
+void getRequests(const char* username, LinkedList* requests_list, int print_requests)
 {
     // print_control: 1 = Print, 0 = Don't Print
-    listClear(control_list);
+    listClear(requests_list);
     char temp[128];
     snprintf(temp, sizeof(temp), "%s_Control/REQUESTS/+", username);
-    subscriberRetained(username, temp, control_list);
-    if (print_control)
+    subscriberRetained(username, temp, requests_list);
+    if (print_requests)
     {
-        listPrintRequests(control_list);
+        listPrintRequests(requests_list);
+    }
+}
+
+// Get History
+void getHistory(const char* username, LinkedList* history_list, int print_history)
+{
+    // print_control: 1 = Print, 0 = Don't Print
+    listClear(history_list);
+    char temp[128];
+    snprintf(temp, sizeof(temp), "%s_Control/HISTORY/+", username);
+    subscriberRetained(username, temp, history_list);
+    if (print_history)
+    {
+        listPrintHistory(history_list, username);
     }
 }
 
@@ -198,6 +267,12 @@ int main()
 
     LinkedList control_list; // Control List (Conversation/Group Requets)
     listInit(&control_list);
+
+    LinkedList requests_list; // Requests List (Conversation/Group Requets)
+    listInit(&requests_list);
+
+    LinkedList history_list; // History List (Conversation/Group Requets)
+    listInit(&history_list);
 
     LinkedList online_users_list; // Online Users List
     listInit(&online_users_list);
@@ -331,21 +406,121 @@ int main()
         // 5 - Solicitações
         else if (menu_op1 == '5')
         {
-            printf("\n1. Ver Solicitações Recebidas\n"
-                   "2. Solicitar Conversa Com Usuário\n"
-                   "3. Solicitar Conversa Com Grupo\n\n");
+            printf("\n1. Ver Solicitações Pendentes\n"
+                   "2. Ver Histórico De Eventos\n"
+                   "3. Solicitar Conversa Com Usuário\n"
+                   "4. Solicitar Conversa Com Grupo\n\n");
             printf("> ");
             scanf(" %c", &menu_op3);
 
-            // 5.1 - Ver Solicitações
+            // 5.1 - Ver Solicitações Pendentes
             if (menu_op3 == '1')
             {
-                getRequests(username, &control_list, 1);
-                //checkGroupRequests(username);
+                getRequests(username, &requests_list, 1);
+                
+                char user_request_accept = 'N';
+                printf("\nDeseja Responder À Uma Solicitação? (S/N)\n\n");
+                printf("> ");
+                scanf(" %c", &user_request_accept);
+
+                if (user_request_accept == 'S' || user_request_accept == 's')
+                {
+                    char user_response[256];
+                    printf("\nDigite:\n"
+                           "- Usuário > \"[NOME DE USUÁRIO]:[RESPOSTA]\"\n"
+                           "- Grupo   > \"[NOME DO GRUPO];[NOME DE USUÁRIO]:[RESPOSTA]\"\n"
+                           "- Sair    > \":\"\n"
+                           "[RESPOSTA] = \"ACEITAR\" | \"REJEITAR\"\n\n");
+                    printf("> ");
+                    scanf("%255s", user_response);
+
+                    if (strcmp(user_response, ":") == 0) // EXIT
+                    {
+                        continue;
+                    }
+                    else if (strchr(user_response, ';') != NULL) // GROUP
+                    {
+                        char* group = strtok(user_response, ";"); // Groupname
+                        char* user = strtok(NULL, ":"); // Username
+                        char* response = strtok(NULL, ":"); // Response
+
+                        if (!group || !user || !response) // ":" Or ";" Not Found
+                        {
+                            printf("\nOpção Inválida!\n");
+                            continue;
+                        }
+
+                        toUppercase(response);
+
+                        if (strcmp(response, "ACEITAR") != 0 && strcmp(response, "REJEITAR") != 0)
+                        {
+                            printf("\nResposta Inválida!\n");
+                            continue;
+                        }
+
+                        char formatted_group[1024];
+                        snprintf(formatted_group, sizeof(formatted_group), "GROUP_REQUEST:%s;%s", group, user);
+
+                        if (listSearch(&requests_list, formatted_group) == 0)
+                        {
+                            printf("\nUsuário Ou Grupo Inválido!\n");
+                            continue;
+                        }
+
+                        // WIP
+                    }
+                    else // USER
+                    {
+                        char* user = strtok(user_response, ":"); // Username
+                        char* response = strtok(NULL, ":"); // Response
+
+                        if (!user || !response) // ":" Not Found
+                        {
+                            printf("\nOpção Inválida!\n");
+                            continue;
+                        }
+
+                        toUppercase(response);
+
+                        if (strcmp(response, "ACEITAR") != 0 && strcmp(response, "REJEITAR") != 0)
+                        {
+                            printf("\nResposta Inválida!\n");
+                            continue;
+                        }
+
+                        char formatted_user[300];
+                        snprintf(formatted_user, sizeof(formatted_user), "USER_REQUEST:%s", user);
+
+                        if (listSearch(&requests_list, formatted_user) == 0)
+                        {
+                            printf("\nUsuário Inválido!\n");
+                            continue;
+                        }
+
+                        // WIP
+                    }      
+
+                    // char temp[128]; // Topic = [TARGET_USER]_Control
+                    // char request[128]; // USER_REQUEST:[USERNAME]
+                    // snprintf(temp, sizeof(temp), "%s_Control", target_user);
+                    // snprintf(request, sizeof(request), "USER_REQUEST:%s", username);
+
+                    // publisher(username, temp, request, 0);
+                }
+                else
+                {
+                    continue; 
+                }
+            }
+
+            // 5.2 - Ver Histórico De Eventos
+            else if (menu_op3 == '2')
+            {
+                getHistory(username, &history_list, 1);
             }
             
-            // 5.2 - Solicitar (Usuário)
-            else if (menu_op3 == '2')
+            // 5.3 - Solicitar (Usuário)
+            else if (menu_op3 == '3')
             {
                 printf("\nBuscando Usuários Online...\n");
 
@@ -393,15 +568,9 @@ int main()
                         target_user_undefined = 0;
                     }
                     
-
                     printf("\n");
 
-                    char temp[128]; // Topic = [TARGET_USER]_Control
-                    char request[128]; // USER_REQUEST:[USERNAME]
-                    snprintf(temp, sizeof(temp), "%s_Control", target_user);
-                    snprintf(request, sizeof(request), "USER_REQUEST:%s", username);
-
-                    publisher(username, temp, request, 0);
+                    requestUser(username, target_user);
                 }
                 else
                 {
@@ -409,8 +578,8 @@ int main()
                 }
             }
 
-            // 5.3 - Solicitar (Grupo)
-            else if (menu_op3 == '3')
+            // 5.4 - Solicitar (Grupo)
+            else if (menu_op3 == '4')
             {
                 printf("\nBuscando Grupos Com Líderes Online...\n");
 
@@ -469,12 +638,7 @@ int main()
                     target_leader = listGetGroupLeader(&groups_list, target_group);
                     printf("Líder: %s", target_leader);
 
-
-                    char temp[128]; // Topic = [TARGET_LEADER]_Control
-                    char request[256]; // GROUP_REQUEST:[GROUPNAME];[USERNAME]
-                    snprintf(temp, sizeof(temp), "%s_Control", target_leader);
-                    snprintf(request, sizeof(request), "GROUP_REQUEST:%s;%s", target_group, username);
-                    publisher(username, temp, request, 0);
+                    requestGroup(username, target_leader, target_group);
                 }
                 else
                 {

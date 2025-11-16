@@ -15,3 +15,20 @@
 
 // Log
 #define LOG_ENABLED 1
+
+// CONTROL
+//
+// REQUESTS
+// USER_REQUEST:[USERNAME]                       | [USERNAME] > Sender User
+// GROUP_REQUEST:[GROUPNAME];[USERNAME]          | [GROUPNAME] > Target Group / [USERNAME] > Sender User
+//
+// RESPONSES
+// USER_ACCEPTED:[USERNAME];[TOPIC]              | [USERNAME] > Sender User / [TOPIC] > "RECEIVER|SENDER|TIMESTAMP"
+// GROUP_ACCEPTED:[GROUPNAME];[USERNAME];[TOPIC] | [GROUPNAME] > Target Group / [USERNAME] > Sender User / [TOPIC] > "GROUPNAME|TIMESTAMP"
+// USER_REJECTED:[USERNAME]                      | [USERNAME] > Sender User
+// GROUP_REJECTED:[GROUPNAME];[USERNAME]         | [GROUPNAME] > Target Group / [USERNAME] > Sender User
+//
+// CONFIRMATIONS
+// GROUP_CREATED:[GROUPNAME];[TOPIC]             | [GROUPNAME] > Created Group / [TOPIC] > "GROUPNAME|TIMESTAMP"
+// USER_REQUEST_SENT:[USERNAME]                  | [USERNAME] > Receiver User
+// GROUP_REQUEST_SENT:[GROUPNAME];[USERNAME]     | [GROUPNAME] > Target Group / [USERNAME] > Receiver User (Leader)
