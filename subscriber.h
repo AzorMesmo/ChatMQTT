@@ -14,6 +14,8 @@ extern "C" {
 
 /* Core Functions */
 int subscriberRetained(const char* username_s, const char* topic_s, LinkedList* status_list);
+int subscriberDirty(const char* username_s, const char* topic_s, LinkedList* status_list);
+int subscriberConversation(const char* username_s, const char* topic_s,  LinkedList* message_list, volatile int* chatting);
 
 /* Higher Level Functions */
 void getUsers(const char* username, LinkedList* status_list, int print_status);

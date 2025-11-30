@@ -6,6 +6,7 @@
 #include "MQTTAsync.h"
 #include "constants.h"
 #include "messages.h"
+#include "subscriber.h"
 
 #if !defined(_WIN32)
 #include <unistd.h>
@@ -70,7 +71,7 @@ void connectionLost_a(void *context_, char *cause) // Connection Lost
 
 	// Connection Parameters
 	conn_opts.keepAliveInterval = 20;
-	conn_opts.cleansession = 1;
+	conn_opts.cleansession = 0;
 	conn_opts.onSuccess = onConnect_a;
 	conn_opts.onFailure = onConnectFailure_a;
 	conn_opts.context = context;
@@ -135,7 +136,6 @@ int messageArrived_a(void *context_, char *topic_name, int topic_len, MQTTAsync_
         snprintf(reply_topic, sizeof(reply_topic), "%s/REQUESTS/%s", topic_name, buf); // [USER]_Control/REQUESTS/[REQUEST_BODY]
 
         publishMessage(context->client, reply_topic, buf, 1);
-        // listInsert(context->message_list, buf);
     }
     else if (strstr(buf, "GROUP_REQUEST") != NULL) // Group Conversation Request | GROUP_REQUEST:[GROUPNAME];[USERNAME]
     {
@@ -144,7 +144,69 @@ int messageArrived_a(void *context_, char *topic_name, int topic_len, MQTTAsync_
         snprintf(reply_topic, sizeof(reply_topic), "%s/REQUESTS/%s", topic_name, buf); // [USER]_Control/REQUESTS/[REQUEST_BODY]
 
         publishMessage(context->client, reply_topic, buf, 1);
-        // listInsert(context->message_list, buf);
+    }
+    else if (strstr(buf, "USER_ACCEPTED") != NULL) // User Conversation Accepted | USER_ACCEPTED:[USERNAME];[TOPIC]
+    {
+        if (LOG_ENABLED)
+            printf("               [LOG] AGENT: User accept received. %s\n", buf);
+
+        char* old_type = strtok(buf, ":");
+        char* user = strtok(NULL, ";");
+        char* link = strtok(NULL, ";");
+        char new_type[512];
+        snprintf(new_type, sizeof(new_type), "USER_REQUEST_ACCEPTED:%s;%s", user, link);
+        snprintf(reply_topic, sizeof(reply_topic), "%s/HISTORY/%s", topic_name, new_type); // [USER]_Control/HISTORY/[REQUEST_BODY]
+        
+        publishMessage(context->client, reply_topic, new_type, 1);
+
+        snprintf(reply_topic, sizeof(reply_topic), "CHATS/%s", link);
+        // subscriberDirty(context->username_a, reply_topic, NULL);
+        listInsert(context->message_list, reply_topic);
+
+        // Confirm Conversation Topic Creation By Sending ""
+        publishMessage(context->client, reply_topic, "", 1);
+    }
+    else if (strstr(buf, "GROUP_ACCEPTED") != NULL) // Group Conversation Accepted | GROUP_ACCEPTED:[GROUPNAME];[USERNAME];[TOPIC]
+    {
+        if (LOG_ENABLED)
+            printf("               [LOG] AGENT: Group accept received. %s\n", buf);
+
+        char* old_type = strtok(buf, ":");
+        char* group = strtok(NULL, ";");
+        char* user = strtok(NULL, ";");
+        char* link = strtok(NULL, ";");
+        char new_type[512];
+        snprintf(new_type, sizeof(new_type), "GROUP_REQUEST_ACCEPTED:%s;%s;%s", group, user, link);
+        snprintf(reply_topic, sizeof(reply_topic), "%s/HISTORY/%s", topic_name, new_type); // [USER]_Control/HISTORY/[REQUEST_BODY]
+        
+        publishMessage(context->client, reply_topic, new_type, 1);
+    }
+    else if (strstr(buf, "USER_REJECTED") != NULL) // User Conversation Rejected | USER_REJECTED:[USERNAME]
+    {
+        if (LOG_ENABLED)
+            printf("               [LOG] AGENT: User reject received. %s\n", buf);
+
+        char* old_type = strtok(buf, ":");
+        char* user = strtok(NULL, ";");
+        char new_type[512];
+        snprintf(new_type, sizeof(new_type), "USER_REQUEST_REJECTED:%s", user);
+        snprintf(reply_topic, sizeof(reply_topic), "%s/HISTORY/%s", topic_name, new_type); // [USER]_Control/HISTORY/[REQUEST_BODY]
+        
+        publishMessage(context->client, reply_topic, new_type, 1);
+    }
+    else if (strstr(buf, "GROUP_REJECTED") != NULL) // Group Conversation Rejected | GROUP_REJECTED:[GROUPNAME];[USERNAME]
+    {
+        if (LOG_ENABLED)
+            printf("               [LOG] AGENT: Group reject received. %s\n", buf);
+
+        char* old_type = strtok(buf, ":");
+        char* group = strtok(NULL, ";");
+        char* user = strtok(NULL, ";");
+        char new_type[512];
+        snprintf(new_type, sizeof(new_type), "GROUP_REQUEST_REJECTED:%s;%s", group, user);
+        snprintf(reply_topic, sizeof(reply_topic), "%s/HISTORY/%s", topic_name, new_type); // [USER]_Control/HISTORY/[REQUEST_BODY]
+        
+        publishMessage(context->client, reply_topic, new_type, 1);
     }
 
 	// Memory Management
@@ -270,7 +332,7 @@ int agentControl(const char* username_a, LinkedList* control_list, volatile int*
 	// Set Connection Parameters
 
 	conn_opts.keepAliveInterval = 30;
-	conn_opts.cleansession = 1; // Persistance
+	conn_opts.cleansession = 0; // Persistance
 	conn_opts.onSuccess = onConnect_a; // Calls onConnect If Connect Successfuly
 	conn_opts.onFailure = onConnectFailure_a; // Calls onConnectFailure If Connection Fails
 	conn_opts.context = context;

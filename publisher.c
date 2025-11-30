@@ -1,4 +1,4 @@
-// Clear Topic Mannualy: mosquitto_pub -t [TOPIC] -r -n
+// Clear Topic Mannualy: mosquitto_pub -t "[TOPIC]" -r -n
 
 // Imports
 
@@ -24,7 +24,7 @@ typedef struct
 {
     MQTTAsync client;
     char username_p[64];
-    char topic_p[64];
+    char topic_p[1024];
     char payload_p[1024];
 	int retained;
 } Context_p;
@@ -230,6 +230,78 @@ int publisher(const char* username_p, const char* topic_p, const char* payload_p
 
 	conn_opts.keepAliveInterval = 20;
 	conn_opts.cleansession = 1; // Persistance
+	conn_opts.onSuccess = onConnect_p; // Calls onConnect If Connect Successfuly
+	conn_opts.onFailure = onConnectFailure_p; // Calls onConnectFailure If Connection Fails
+	conn_opts.context = context;
+
+	// Connect To Broker
+
+	if ((rc = MQTTAsync_connect(client, &conn_opts)) != MQTTASYNC_SUCCESS)
+	{
+		if (LOG_ENABLED)
+			printf("               [LOG] PUBLISHER: Failed to start connect, return code %d\n", rc);
+        free(context);
+		exit(EXIT_FAILURE);
+	}
+
+	// Wait For Completion
+
+	if (LOG_ENABLED)
+		printf("               [LOG] PUBLISHER: Waiting for publication of '%s' on topic %s for client with ClientID: %s\n", payload_p, topic_p, username_p);
+	while (!finished_p)
+		#if defined(_WIN32)
+            Sleep(DELAY_100_MS_MS);
+        #else
+            usleep(DELAY_100_MS_US);
+        #endif
+
+    // Exit
+
+	MQTTAsync_destroy(&client);
+    free(context);
+ 	return rc;
+}
+
+int publisherDirty(const char* username_p, const char* topic_p, const char* payload_p, int retained) // Publish Messages
+{
+	MQTTAsync client; // Client (Handler) | Connection To Broker
+	MQTTAsync_connectOptions conn_opts = MQTTAsync_connectOptions_initializer; // Connection Options (... = [Default Initializer Macro])
+	int rc; // Return Code For Function Calls
+    // Reset Parameters
+	finished_p = 0;
+
+	// Create Client
+
+	if ((rc = MQTTAsync_create(&client, ADDRESS, username_p, MQTTCLIENT_PERSISTENCE_NONE, NULL)) != MQTTASYNC_SUCCESS)
+	{
+		if (LOG_ENABLED)
+			printf("               [LOG] PUBLISHER: Failed to create client object, return code %d\n", rc);
+		exit(EXIT_FAILURE);
+	}
+
+    // Create Context
+
+    Context_p* context = malloc(sizeof(Context_p));
+    context->client = client;
+    strcpy(context->username_p, username_p);
+    strcpy(context->topic_p, topic_p);
+    strcpy(context->payload_p, payload_p);
+	context->retained = retained;
+
+	// Set Callbacks
+
+	if ((rc = MQTTAsync_setCallbacks(client, context, connectionLost_p, messageArrived_p, NULL)) != MQTTASYNC_SUCCESS)
+	{
+		if (LOG_ENABLED)
+			printf("               [LOG] PUBLISHER: Failed to set callback, return code %d\n", rc);
+        free(context);
+		exit(EXIT_FAILURE);
+	}
+
+	// Connection Parameters
+
+	conn_opts.keepAliveInterval = 20;
+	conn_opts.cleansession = 0; // Persistance
 	conn_opts.onSuccess = onConnect_p; // Calls onConnect If Connect Successfuly
 	conn_opts.onFailure = onConnectFailure_p; // Calls onConnectFailure If Connection Fails
 	conn_opts.context = context;

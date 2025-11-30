@@ -12,6 +12,7 @@ extern "C" {
 
 /* Core Functions */
 int publisher(const char* username_p, const char* topic_p, const char* payload_p, int retained);
+int publisherDirty(const char* username_p, const char* topic_p, const char* payload_p, int retained);
 
 /* Higher Level Functions */
 void setStatus(const char* username, const char* status);
